@@ -38,7 +38,7 @@ internal sealed class BatteryForm : Forms.Form
     public BatteryForm()
     {
         Text = "R5 Battery Estimator";
-        ClientSize = new Drawing.Size(1080, 970);
+        ClientSize = new Drawing.Size(1140, 970);
         MinimumSize = new Drawing.Size(940, 840);
         FormBorderStyle = Forms.FormBorderStyle.None;
         BackColor = Drawing.Color.FromArgb(10, 17, 23);
@@ -94,9 +94,9 @@ internal sealed class BatteryForm : Forms.Form
         left.Top = right.Top = 285; left.Size = new Drawing.Size(330, 230); right.Size = new Drawing.Size(330, 230);
         left.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right; right.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right;
         _estimate.Font = new Drawing.Font("Segoe UI", 34, Drawing.FontStyle.Bold); _remaining.Font = new Drawing.Font("Segoe UI", 48, Drawing.FontStyle.Bold);
-        _chart.Location = new Drawing.Point(38, 590); _chart.Size = new Drawing.Size(1044, 280); _chart.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Left | Forms.AnchorStyles.Right;
+        _chart.Location = new Drawing.Point(38, 590); _chart.Size = new Drawing.Size(1064, 280); _chart.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Left | Forms.AnchorStyles.Right;
         var hint = new Forms.Label { Text = "ⓘ   La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(50, 915), Anchor = Forms.AnchorStyles.Left | Forms.AnchorStyles.Bottom, ForeColor = Drawing.Color.FromArgb(190, 208, 233), Font = new Drawing.Font("Segoe UI", 13) };
-        var update = new RoundedButton { Text = "⟳   Actualizar ahora", Size = new Drawing.Size(228, 60), Location = new Drawing.Point(852, 892), Anchor = Forms.AnchorStyles.Right | Forms.AnchorStyles.Bottom, BackColor = Drawing.Color.FromArgb(232, 55, 61), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat, Font = new Drawing.Font("Segoe UI", 14, Drawing.FontStyle.Regular) };
+        var update = new RoundedButton { Text = "Actualizar ahora", Size = new Drawing.Size(228, 60), Location = new Drawing.Point(852, 892), Anchor = Forms.AnchorStyles.Right | Forms.AnchorStyles.Bottom, BackColor = Drawing.Color.FromArgb(232, 55, 61), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat, Font = new Drawing.Font("Segoe UI", 14, Drawing.FontStyle.Regular) };
         update.FlatAppearance.BorderSize = 0; update.Click += async (_, _) => await RefreshAsync();
         Controls.AddRange([chrome, title, subtitle, badge, panelLogo, _ring, left, right, _chart, hint, update]);
         SetRoundedRegion();
