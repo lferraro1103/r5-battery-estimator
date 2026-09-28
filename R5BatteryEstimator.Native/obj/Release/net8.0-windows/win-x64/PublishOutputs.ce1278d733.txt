@@ -1,6 +1,0 @@
-C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native-new\R5BatteryEstimator.Native.exe
-C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native-new\r5-battery-probe.exe
-C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native-new\R5BatteryEstimator.Native.dll
-C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native-new\R5BatteryEstimator.Native.deps.json
-C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native-new\R5BatteryEstimator.Native.runtimeconfig.json
-C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native-new\R5BatteryEstimator.Native.pdb
