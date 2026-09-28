@@ -37,7 +37,7 @@ internal sealed class BatteryForm : Forms.Form
     public BatteryForm()
     {
         Text = "R5 Battery Estimator";
-        ClientSize = new Drawing.Size(660, 590);
+        ClientSize = new Drawing.Size(660, 610);
         FormBorderStyle = Forms.FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         BackColor = Drawing.Color.FromArgb(32, 33, 36);
@@ -77,9 +77,11 @@ internal sealed class BatteryForm : Forms.Form
         var left = Card("DURACIÓN DE CARGA COMPLETA", _estimate, "Se aprende con tu descarga real.", 30);
         var right = Card("AUTONOMÍA RESTANTE", _remaining, "Se recalcula cada 30 segundos.", 335);
         left.Top = 255; right.Top = 255;
-        var chartTitle = new Forms.Label { Text = "HISTORIAL: HORA / PORCENTAJE", AutoSize = true, Location = new Drawing.Point(30, 370), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
-        var hint = new Forms.Label { Text = "La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(30, 557), ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
-        var update = new Forms.Button { Text = "Actualizar ahora", AutoSize = true, Location = new Drawing.Point(500, 547), BackColor = Drawing.Color.FromArgb(220, 55, 55), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat };
+        left.Height = 106; right.Height = 106;
+        var chartTitle = new Forms.Label { Text = "HISTORIAL: HORA / PORCENTAJE", AutoSize = true, Location = new Drawing.Point(30, 380), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
+        _chart.Location = new Drawing.Point(30, 402);
+        var hint = new Forms.Label { Text = "La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(30, 577), ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
+        var update = new Forms.Button { Text = "Actualizar ahora", AutoSize = true, Location = new Drawing.Point(500, 567), BackColor = Drawing.Color.FromArgb(220, 55, 55), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat };
         update.FlatAppearance.BorderSize = 0; update.Click += async (_, _) => await RefreshAsync();
         Controls.AddRange([title, badge, panelLogo, caption, _circle, _status, left, right, chartTitle, _chart, hint, update]);
     }

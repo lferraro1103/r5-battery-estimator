@@ -32,9 +32,15 @@ internal sealed class BatteryHistory
 
     public double? LearnedFullChargeHours()
     {
+        // A short drop is not evidence of a full battery cycle. Do not claim a
+        // personalized full-charge duration until this installation has seen a
+        // near-full state followed by a near-empty state while discharging.
+        var fullStart = _items.FindIndex(item => item.Percent >= 95 && !item.Charging);
+        if (fullStart < 0 || !_items.Skip(fullStart).Any(item => item.Percent <= 5 && !item.Charging)) return null;
+
         double elapsedHours = 0;
         double percentDropped = 0;
-        for (var index = 1; index < _items.Count; index++)
+        for (var index = fullStart + 1; index < _items.Count; index++)
         {
             var before = _items[index - 1];
             var after = _items[index];
