@@ -73,15 +73,18 @@ internal sealed class BatteryForm : Forms.Form
 
     private void BuildLayout()
     {
-        var chrome = new Forms.Panel { Dock = Forms.DockStyle.Top, Height = 60, BackColor = Drawing.Color.FromArgb(13, 22, 29) };
-        chrome.Paint += (_, e) => { using var p = new Drawing.Pen(Drawing.Color.FromArgb(35, 49, 59)); e.Graphics.DrawLine(p, 0, chrome.Height - 1, chrome.Width, chrome.Height - 1); };
-        chrome.MouseDown += DragWindow;
-        var tinyLogo = new Forms.PictureBox { Image = _mascot, Location = new Drawing.Point(20, 14), Size = new Drawing.Size(31, 31), SizeMode = Forms.PictureBoxSizeMode.Zoom };
-        var chromeTitle = new Forms.Label { Text = "R5 Battery Estimator", Location = new Drawing.Point(66, 17), AutoSize = true, Font = new Drawing.Font("Segoe UI", 15), ForeColor = Drawing.Color.FromArgb(235, 240, 247) };
-        var minimize = ChromeButton("—", 974, (_, _) => WindowState = Forms.FormWindowState.Minimized);
-        var maximize = ChromeButton("□", 1022, (_, _) => WindowState = WindowState == Forms.FormWindowState.Maximized ? Forms.FormWindowState.Normal : Forms.FormWindowState.Maximized);
-        var close = ChromeButton("×", 1070, (_, _) => Hide());
-        foreach (var button in new[] { minimize, maximize, close }) { button.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right; chrome.Controls.Add(button); }
+        var chrome = new Forms.Panel { Dock = Forms.DockStyle.Top, Height = 54, BackColor = Drawing.Color.FromArgb(13, 22, 29) };
+        chrome.Paint += (_, e) => DrawChrome(chrome, e.Graphics);
+        chrome.MouseDown += (_, e) =>
+        {
+            if (e.Button != Forms.MouseButtons.Left) return;
+            if (e.X >= chrome.Width - 64) { Hide(); return; }
+            if (e.X >= chrome.Width - 112) { WindowState = WindowState == Forms.FormWindowState.Maximized ? Forms.FormWindowState.Normal : Forms.FormWindowState.Maximized; return; }
+            if (e.X >= chrome.Width - 160) { WindowState = Forms.FormWindowState.Minimized; return; }
+            DragWindow(chrome, e);
+        };
+        var tinyLogo = new Forms.PictureBox { Image = _mascot, Location = new Drawing.Point(20, 11), Size = new Drawing.Size(29, 29), SizeMode = Forms.PictureBoxSizeMode.Zoom };
+        var chromeTitle = new Forms.Label { Text = "R5 Battery Estimator", Location = new Drawing.Point(66, 14), AutoSize = true, Font = new Drawing.Font("Segoe UI", 15), ForeColor = Drawing.Color.FromArgb(235, 240, 247) };
         chrome.Controls.AddRange([tinyLogo, chromeTitle]);
         var title = new Forms.Label { Text = "R5 Battery Estimator", Font = new Drawing.Font("Segoe UI", 40, Drawing.FontStyle.Bold), AutoSize = true, Location = new Drawing.Point(60, 98), ForeColor = Drawing.Color.FromArgb(247, 249, 252) };
         var subtitle = new Forms.Label { Text = "Se aprende con tu descarga real.", Font = new Drawing.Font("Segoe UI", 18), AutoSize = true, Location = new Drawing.Point(62, 163), ForeColor = Drawing.Color.FromArgb(188, 207, 233) };
@@ -89,9 +92,9 @@ internal sealed class BatteryForm : Forms.Form
         var panelLogo = new Forms.PictureBox { Image = _mascot, Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right, Location = new Drawing.Point(1000, 82), Size = new Drawing.Size(84, 84), SizeMode = Forms.PictureBoxSizeMode.Zoom };
         _status.Visible = false;
         _ring.Location = new Drawing.Point(58, 218); _ring.Size = new Drawing.Size(305, 305);
-        var left = Card("◷   DURACIÓN DE CARGA COMPLETA", _estimate, "Se aprende con tu descarga real.", 405);
-        var right = Card("▮▮   AUTONOMÍA RESTANTE", _remaining, "Se recalcula cada 30 segundos.", 755);
-        left.Top = right.Top = 285; left.Size = new Drawing.Size(330, 230); right.Size = new Drawing.Size(330, 230);
+        var left = Card("◷   DURACIÓN DE CARGA COMPLETA", _estimate, "Se aprende con tu descarga real.", 390);
+        var right = Card("▮▮   AUTONOMÍA RESTANTE", _remaining, "Se recalcula cada 30 segundos.", 765);
+        left.Top = right.Top = 285; left.Size = new Drawing.Size(350, 230); right.Size = new Drawing.Size(340, 230);
         left.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right; right.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right;
         _estimate.Font = new Drawing.Font("Segoe UI", 34, Drawing.FontStyle.Bold); _remaining.Font = new Drawing.Font("Segoe UI", 48, Drawing.FontStyle.Bold);
         _chart.Location = new Drawing.Point(38, 590); _chart.Size = new Drawing.Size(1064, 280); _chart.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Left | Forms.AnchorStyles.Right;
@@ -111,7 +114,17 @@ internal sealed class BatteryForm : Forms.Form
         return card;
     }
 
-    private Forms.Label ChromeButton(string text, int left, Forms.MouseEventHandler action) { var button = new Forms.Label { Text = text, Location = new Drawing.Point(left, 8), Size = new Drawing.Size(44, 44), TextAlign = Drawing.ContentAlignment.MiddleCenter, ForeColor = Drawing.Color.FromArgb(220, 230, 240), Font = new Drawing.Font("Segoe UI", 22) }; button.MouseDown += action; return button; }
+    private static void DrawChrome(Forms.Panel chrome, Drawing.Graphics graphics)
+    {
+        using var border = new Drawing.Pen(Drawing.Color.FromArgb(35, 49, 59));
+        using var symbol = new Drawing.Pen(Drawing.Color.FromArgb(213, 225, 238), 2);
+        graphics.DrawLine(border, 0, chrome.Height - 1, chrome.Width, chrome.Height - 1);
+        var y = chrome.Height / 2;
+        graphics.DrawLine(symbol, chrome.Width - 148, y, chrome.Width - 130, y);
+        graphics.DrawRectangle(symbol, chrome.Width - 100, y - 9, 18, 18);
+        graphics.DrawLine(symbol, chrome.Width - 54, y - 10, chrome.Width - 34, y + 10);
+        graphics.DrawLine(symbol, chrome.Width - 34, y - 10, chrome.Width - 54, y + 10);
+    }
     private void DragWindow(object? sender, Forms.MouseEventArgs e) { if (e.Button == Forms.MouseButtons.Left) { ReleaseCapture(); SendMessage(Handle, 0xA1, (IntPtr)2, IntPtr.Zero); } }
     private void SetRoundedRegion() { using var path = new GraphicsPath(); path.AddArc(0, 0, 24, 24, 180, 90); path.AddArc(Width - 25, 0, 24, 24, 270, 90); path.AddArc(Width - 25, Height - 25, 24, 24, 0, 90); path.AddArc(0, Height - 25, 24, 24, 90, 90); path.CloseFigure(); Region = new Region(path); }
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
