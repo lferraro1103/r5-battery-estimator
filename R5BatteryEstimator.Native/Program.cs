@@ -73,7 +73,7 @@ internal sealed class BatteryForm : Forms.Form
 
     private void BuildLayout()
     {
-        var chrome = new Forms.Panel { Dock = Forms.DockStyle.Top, Height = 54, BackColor = Drawing.Color.FromArgb(13, 22, 29) };
+        var chrome = new Forms.Panel { Dock = Forms.DockStyle.Top, Height = 50, BackColor = Drawing.Color.FromArgb(13, 22, 29) };
         chrome.Paint += (_, e) => DrawChrome(chrome, e.Graphics);
         chrome.MouseDown += (_, e) =>
         {
@@ -96,7 +96,8 @@ internal sealed class BatteryForm : Forms.Form
         var right = Card("▮▮   AUTONOMÍA RESTANTE", _remaining, "Se recalcula cada 30 segundos.", 765);
         left.Top = right.Top = 285; left.Size = new Drawing.Size(350, 230); right.Size = new Drawing.Size(340, 230);
         left.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right; right.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right;
-        _estimate.Font = new Drawing.Font("Segoe UI", 34, Drawing.FontStyle.Bold); _remaining.Font = new Drawing.Font("Segoe UI", 48, Drawing.FontStyle.Bold);
+        _estimate.Font = new Drawing.Font("Segoe UI", 32, Drawing.FontStyle.Bold); _estimate.AutoSize = false; _estimate.Size = new Drawing.Size(294, 66); _estimate.TextAlign = Drawing.ContentAlignment.MiddleCenter;
+        _remaining.Font = new Drawing.Font("Segoe UI", 48, Drawing.FontStyle.Bold);
         _chart.Location = new Drawing.Point(38, 590); _chart.Size = new Drawing.Size(1064, 280); _chart.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Left | Forms.AnchorStyles.Right;
         var hint = new Forms.Label { Text = "ⓘ   La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(50, 915), Anchor = Forms.AnchorStyles.Left | Forms.AnchorStyles.Bottom, ForeColor = Drawing.Color.FromArgb(190, 208, 233), Font = new Drawing.Font("Segoe UI", 13) };
         var update = new RoundedButton { Text = "Actualizar ahora", Size = new Drawing.Size(228, 60), Location = new Drawing.Point(852, 892), Anchor = Forms.AnchorStyles.Right | Forms.AnchorStyles.Bottom, BackColor = Drawing.Color.FromArgb(232, 55, 61), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat, Font = new Drawing.Font("Segoe UI", 14, Drawing.FontStyle.Regular) };
