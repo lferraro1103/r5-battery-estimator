@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Drawing.Drawing2D;
 using Forms = System.Windows.Forms;
 using Drawing = System.Drawing;
 
@@ -19,11 +20,11 @@ internal static class Program
 
 internal sealed class BatteryForm : Forms.Form
 {
-    private readonly Forms.Label _percent = new() { Text = "—%", Font = new Drawing.Font("Segoe UI", 54, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
+    private readonly Forms.Label _percent = new() { Text = "—%", Font = new Drawing.Font("Segoe UI", 32, Drawing.FontStyle.Bold), AutoSize = false, TextAlign = Drawing.ContentAlignment.MiddleCenter, Dock = Forms.DockStyle.Fill, ForeColor = Drawing.Color.White };
     private readonly Forms.Label _status = new() { Text = "Leyendo el receptor…", AutoSize = true, ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
     private readonly Forms.Label _estimate = new() { Text = "—", Font = new Drawing.Font("Segoe UI", 22, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
     private readonly Forms.Label _updated = new() { Text = "Sin datos", Font = new Drawing.Font("Segoe UI", 16, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
-    private readonly Forms.ProgressBar _bar = new() { Minimum = 0, Maximum = 100, Height = 9, Style = Forms.ProgressBarStyle.Continuous };
+    private readonly Forms.Panel _circle = new() { Size = new Drawing.Size(142, 142), BackColor = Drawing.Color.DimGray };
     private readonly Forms.Timer _timer = new() { Interval = 30_000 };
     private readonly Forms.NotifyIcon _tray;
     private readonly Drawing.Image _mascot;
@@ -45,6 +46,7 @@ internal sealed class BatteryForm : Forms.Form
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Cerrar programa", null, (_, _) => ExitProgram());
         _mascot = Drawing.Image.FromFile(Path.Combine(AppContext.BaseDirectory, "Assets", "shark-battery.png"));
+        Icon = CreateTrayIcon(Drawing.Color.DodgerBlue);
         _tray = new Forms.NotifyIcon { Icon = CreateTrayIcon(Drawing.Color.DodgerBlue), Text = "R5 Battery Estimator", ContextMenuStrip = menu, Visible = true };
         _tray.MouseUp += (_, e) => { if (e.Button == Forms.MouseButtons.Left) menu.Show(Forms.Cursor.Position); };
 
@@ -61,15 +63,17 @@ internal sealed class BatteryForm : Forms.Form
         var title = new Forms.Label { Text = "R5 Battery Estimator", Font = new Drawing.Font("Segoe UI", 19, Drawing.FontStyle.Bold), AutoSize = true, Location = new Drawing.Point(28, 22), ForeColor = Drawing.Color.White };
         var badge = new Forms.Label { Text = "R5 ULTRA", AutoSize = true, Location = new Drawing.Point(500, 28), ForeColor = Drawing.Color.FromArgb(230, 80, 75), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
         var caption = new Forms.Label { Text = "BATERÍA ACTUAL", AutoSize = true, Location = new Drawing.Point(30, 79), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
-        _percent.Location = new Drawing.Point(25, 95);
-        _status.Location = new Drawing.Point(30, 180);
-        _bar.Location = new Drawing.Point(30, 215); _bar.Width = 600;
+        _circle.Location = new Drawing.Point(30, 98);
+        using (var path = new GraphicsPath()) { path.AddEllipse(0, 0, _circle.Width, _circle.Height); _circle.Region = new Drawing.Region(path); }
+        _circle.Controls.Add(_percent);
+        _status.Location = new Drawing.Point(195, 158);
         var left = Card("AUTONOMÍA ESTIMADA", _estimate, "Provisional; se calibrará con tu uso.", 30);
         var right = Card("ÚLTIMA LECTURA", _updated, "Actualiza cada 30 segundos.", 335);
+        left.Top = 267; right.Top = 267;
         var hint = new Forms.Label { Text = "La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(30, 367), ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
         var update = new Forms.Button { Text = "Actualizar ahora", AutoSize = true, Location = new Drawing.Point(500, 357), BackColor = Drawing.Color.FromArgb(220, 55, 55), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat };
         update.FlatAppearance.BorderSize = 0; update.Click += async (_, _) => await RefreshAsync();
-        Controls.AddRange([title, badge, caption, _percent, _status, _bar, left, right, hint, update]);
+        Controls.AddRange([title, badge, caption, _circle, _status, left, right, hint, update]);
     }
 
     private Forms.Panel Card(string title, Forms.Label value, string note, int left)
@@ -85,7 +89,7 @@ internal sealed class BatteryForm : Forms.Form
     {
         _status.Text = "Leyendo el receptor…";
         var result = await ProbeRunner.ReadAsync();
-        if (result.Percent is not int percent) { _percent.Text = "—%"; _bar.Value = 0; _estimate.Text = "—"; _updated.Text = "Sin datos"; _status.Text = result.Message; SetTrayText("R5 Battery Estimator — sin lectura válida"); SetTrayColor(Drawing.Color.DimGray); return; }
+        if (result.Percent is not int percent) { _percent.Text = "—%"; _estimate.Text = "—"; _updated.Text = "Sin datos"; _status.Text = result.Message; SetTrayText("R5 Battery Estimator — sin lectura válida"); SetTrayColor(Drawing.Color.DimGray); return; }
         var hours = Math.Round(percent * 2.0);
         _percent.Text = $"{percent}%"; _bar.Value = percent; _estimate.Text = $"{hours:0} h"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
         SetTrayColor(percent > 50 ? Drawing.Color.FromArgb(46, 204, 113) : percent > 20 ? Drawing.Color.FromArgb(241, 196, 15) : Drawing.Color.FromArgb(231, 76, 60));
@@ -96,8 +100,7 @@ internal sealed class BatteryForm : Forms.Form
     private void SetTrayText(string text) => _tray.Text = text.Length <= 63 ? text : text[..63];
     private void SetTrayColor(Drawing.Color color)
     {
-        _percent.ForeColor = color;
-        _bar.ForeColor = color;
+        _circle.BackColor = color;
         var previous = _tray.Icon;
         _tray.Icon = CreateTrayIcon(color);
         previous?.Dispose();
