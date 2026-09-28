@@ -38,12 +38,18 @@ internal sealed class BatteryForm : Forms.Form
     public BatteryForm()
     {
         Text = "R5 Battery Estimator";
-        ClientSize = new Drawing.Size(1260, 1160);
-        FormBorderStyle = Forms.FormBorderStyle.FixedSingle;
-        MaximizeBox = false;
-        BackColor = Drawing.Color.FromArgb(32, 33, 36);
+        ClientSize = new Drawing.Size(1120, 1010);
+        MinimumSize = new Drawing.Size(940, 840);
+        FormBorderStyle = Forms.FormBorderStyle.None;
+        BackColor = Drawing.Color.FromArgb(10, 17, 23);
         ForeColor = Drawing.Color.White;
         StartPosition = Forms.FormStartPosition.CenterScreen;
+        Paint += (_, e) =>
+        {
+            using var glow = new Drawing.Drawing2D.PathGradientBrush(new[] { new Drawing.Point(180, 365), new Drawing.Point(430, 365), new Drawing.Point(305, 580) }) { CenterColor = Drawing.Color.FromArgb(30, 33, 226, 139), SurroundColors = [Drawing.Color.FromArgb(0, 10, 17, 23), Drawing.Color.FromArgb(0, 10, 17, 23), Drawing.Color.FromArgb(0, 10, 17, 23)] };
+            e.Graphics.FillEllipse(glow, 25, 190, 380, 380);
+        };
+        Resize += (_, _) => SetRoundedRegion();
 
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Abrir panel", null, (_, _) => ShowPanel());
@@ -67,31 +73,49 @@ internal sealed class BatteryForm : Forms.Form
 
     private void BuildLayout()
     {
-        var title = new Forms.Label { Text = "R5 Battery Estimator", Font = new Drawing.Font("Segoe UI", 48, Drawing.FontStyle.Bold), AutoSize = true, Location = new Drawing.Point(68, 82), ForeColor = Drawing.Color.White };
-        var subtitle = new Forms.Label { Text = "Se aprende con tu descarga real.", Font = new Drawing.Font("Segoe UI", 20), AutoSize = true, Location = new Drawing.Point(72, 160), ForeColor = Drawing.Color.LightSteelBlue };
-        var badge = new Forms.Label { Text = "R5 ULTRA", AutoSize = true, Location = new Drawing.Point(980, 110), ForeColor = Drawing.Color.FromArgb(255, 83, 83), Font = new Drawing.Font("Segoe UI", 18, Drawing.FontStyle.Bold) };
-        var panelLogo = new Forms.PictureBox { Image = _mascot, Location = new Drawing.Point(1125, 82), Size = new Drawing.Size(95, 95), SizeMode = Forms.PictureBoxSizeMode.Zoom };
+        var chrome = new Forms.Panel { Dock = Forms.DockStyle.Top, Height = 60, BackColor = Drawing.Color.FromArgb(13, 22, 29) };
+        chrome.Paint += (_, e) => { using var p = new Drawing.Pen(Drawing.Color.FromArgb(35, 49, 59)); e.Graphics.DrawLine(p, 0, chrome.Height - 1, chrome.Width, chrome.Height - 1); };
+        chrome.MouseDown += DragWindow;
+        var tinyLogo = new Forms.PictureBox { Image = _mascot, Location = new Drawing.Point(20, 14), Size = new Drawing.Size(31, 31), SizeMode = Forms.PictureBoxSizeMode.Zoom };
+        var chromeTitle = new Forms.Label { Text = "R5 Battery Estimator", Location = new Drawing.Point(66, 17), AutoSize = true, Font = new Drawing.Font("Segoe UI", 15), ForeColor = Drawing.Color.FromArgb(235, 240, 247) };
+        var minimize = ChromeButton("—", 974, (_, _) => WindowState = Forms.FormWindowState.Minimized);
+        var maximize = ChromeButton("□", 1022, (_, _) => WindowState = WindowState == Forms.FormWindowState.Maximized ? Forms.FormWindowState.Normal : Forms.FormWindowState.Maximized);
+        var close = ChromeButton("×", 1070, (_, _) => Hide());
+        foreach (var button in new[] { minimize, maximize, close }) { button.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right; chrome.Controls.Add(button); }
+        chrome.Controls.AddRange([tinyLogo, chromeTitle]);
+        var title = new Forms.Label { Text = "R5 Battery Estimator", Font = new Drawing.Font("Segoe UI", 40, Drawing.FontStyle.Bold), AutoSize = true, Location = new Drawing.Point(60, 98), ForeColor = Drawing.Color.FromArgb(247, 249, 252) };
+        var subtitle = new Forms.Label { Text = "Se aprende con tu descarga real.", Font = new Drawing.Font("Segoe UI", 18), AutoSize = true, Location = new Drawing.Point(62, 163), ForeColor = Drawing.Color.FromArgb(188, 207, 233) };
+        var badge = new Forms.Label { Text = "R5 ULTRA", AutoSize = true, Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right, Location = new Drawing.Point(875, 111), ForeColor = Drawing.Color.FromArgb(255, 83, 83), Font = new Drawing.Font("Segoe UI", 16, Drawing.FontStyle.Bold) };
+        var panelLogo = new Forms.PictureBox { Image = _mascot, Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right, Location = new Drawing.Point(1000, 82), Size = new Drawing.Size(84, 84), SizeMode = Forms.PictureBoxSizeMode.Zoom };
         _status.Visible = false;
-        var left = Card("◷  DURACIÓN DE CARGA COMPLETA", _estimate, "Se aprende con tu descarga real.", 460);
-        var right = Card("▮▮  AUTONOMÍA RESTANTE", _remaining, "Se recalcula cada 30 segundos.", 875);
-        left.Top = 320; right.Top = 320; left.Size = new Drawing.Size(390, 255); right.Size = new Drawing.Size(360, 255);
-        _estimate.Font = new Drawing.Font("Segoe UI", 42, Drawing.FontStyle.Bold); _remaining.Font = new Drawing.Font("Segoe UI", 62, Drawing.FontStyle.Bold);
-        var chartTitle = new Forms.Label { Text = "▮▮  HISTORIAL: HORA / PORCENTAJE", AutoSize = true, Location = new Drawing.Point(82, 690), ForeColor = Drawing.Color.LightSteelBlue, Font = new Drawing.Font("Segoe UI", 18, Drawing.FontStyle.Bold) };
-        _chart.Location = new Drawing.Point(45, 665); _chart.Size = new Drawing.Size(1168, 380);
-        var hint = new Forms.Label { Text = "La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(30, 585), ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
-        var update = new Forms.Button { Text = "Actualizar ahora", AutoSize = true, Location = new Drawing.Point(500, 575), BackColor = Drawing.Color.FromArgb(220, 55, 55), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat };
+        _ring.Location = new Drawing.Point(42, 200); _ring.Size = new Drawing.Size(345, 345);
+        var left = Card("◷   DURACIÓN DE CARGA COMPLETA", _estimate, "Se aprende con tu descarga real.", 405);
+        var right = Card("▮▮   AUTONOMÍA RESTANTE", _remaining, "Se recalcula cada 30 segundos.", 755);
+        left.Top = right.Top = 285; left.Size = new Drawing.Size(330, 230); right.Size = new Drawing.Size(330, 230);
+        left.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right; right.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right;
+        _estimate.Font = new Drawing.Font("Segoe UI", 34, Drawing.FontStyle.Bold); _remaining.Font = new Drawing.Font("Segoe UI", 48, Drawing.FontStyle.Bold);
+        _chart.Location = new Drawing.Point(38, 590); _chart.Size = new Drawing.Size(1044, 280); _chart.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Left | Forms.AnchorStyles.Right;
+        var hint = new Forms.Label { Text = "ⓘ   La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(50, 915), Anchor = Forms.AnchorStyles.Left | Forms.AnchorStyles.Bottom, ForeColor = Drawing.Color.FromArgb(190, 208, 233), Font = new Drawing.Font("Segoe UI", 13) };
+        var update = new Forms.Button { Text = "⟳   Actualizar ahora", Size = new Drawing.Size(225, 58), Location = new Drawing.Point(855, 895), Anchor = Forms.AnchorStyles.Right | Forms.AnchorStyles.Bottom, BackColor = Drawing.Color.FromArgb(225, 54, 60), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat, Font = new Drawing.Font("Segoe UI", 12) };
         update.FlatAppearance.BorderSize = 0; update.Click += async (_, _) => await RefreshAsync();
-        Controls.AddRange([title, subtitle, badge, panelLogo, _ring, left, right, chartTitle, _chart]);
+        Controls.AddRange([chrome, title, subtitle, badge, panelLogo, _ring, left, right, _chart, hint, update]);
+        SetRoundedRegion();
     }
 
     private Forms.Panel Card(string title, Forms.Label value, string note, int left)
     {
-        var card = new Forms.Panel { Location = new Drawing.Point(left, 250), Size = new Drawing.Size(295, 92), BackColor = Drawing.Color.FromArgb(43, 45, 49) };
-        card.Controls.Add(new Forms.Label { Text = title, AutoSize = true, Location = new Drawing.Point(14, 12), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 8, Drawing.FontStyle.Bold) });
-        value.Location = new Drawing.Point(14, 30); card.Controls.Add(value);
-        card.Controls.Add(new Forms.Label { Text = note, AutoSize = true, Location = new Drawing.Point(14, 82), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 8) });
+        var card = new RoundedPanel { Location = new Drawing.Point(left, 250), Size = new Drawing.Size(295, 92), BackColor = Drawing.Color.FromArgb(16, 27, 35) };
+        card.Controls.Add(new Forms.Label { Text = title, AutoSize = true, Location = new Drawing.Point(25, 37), ForeColor = Drawing.Color.FromArgb(199, 216, 241), Font = new Drawing.Font("Segoe UI", 11) });
+        value.Location = new Drawing.Point(25, 91); card.Controls.Add(value);
+        card.Controls.Add(new Forms.Label { Text = note, AutoSize = true, Location = new Drawing.Point(25, 185), ForeColor = Drawing.Color.FromArgb(190, 208, 233), Font = new Drawing.Font("Segoe UI", 11) });
         return card;
     }
+
+    private Forms.Label ChromeButton(string text, int left, Forms.MouseEventHandler action) { var button = new Forms.Label { Text = text, Location = new Drawing.Point(left, 8), Size = new Drawing.Size(44, 44), TextAlign = Drawing.ContentAlignment.MiddleCenter, ForeColor = Drawing.Color.FromArgb(220, 230, 240), Font = new Drawing.Font("Segoe UI", 22) }; button.MouseDown += action; return button; }
+    private void DragWindow(object? sender, Forms.MouseEventArgs e) { if (e.Button == Forms.MouseButtons.Left) { ReleaseCapture(); SendMessage(Handle, 0xA1, (IntPtr)2, IntPtr.Zero); } }
+    private void SetRoundedRegion() { using var path = new GraphicsPath(); path.AddArc(0, 0, 24, 24, 180, 90); path.AddArc(Width - 25, 0, 24, 24, 270, 90); path.AddArc(Width - 25, Height - 25, 24, 24, 0, 90); path.AddArc(0, Height - 25, 24, 24, 90, 90); path.CloseFigure(); Region = new Region(path); }
+    [DllImport("user32.dll")] private static extern bool ReleaseCapture();
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     private async Task RefreshAsync()
     {
