@@ -23,7 +23,7 @@ See: .planning/PROJECT.md (updated 2026-09-28)
 Phase: 1 of 4 (Monitor de batería en vivo)
 Plan: Not planned yet
 Status: Ready to plan
-Last activity: 2026-09-28 — Roadmap inicial creado; 20 requisitos v1 distribuidos en cuatro fases MVP.
+Last activity: 2026-09-28 - Completed quick task 260928-g9c: Preparar el proyecto investigado y publicarlo en un repositorio privado de GitHub para continuarlo desde otra computadora
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -66,6 +66,12 @@ None yet.
 - Phase 1: Medir granularidad, cadencia y convivencia del protocolo HID con el software oficial y durante el juego.
 - Phase 2: Validar en hardware la lectura de polling rate, Competitive Mode, Motion Sync y tiempo de reposo.
 - Phase 3: Calibrar priors y criterios de confianza con episodios reales independientes.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260928-g9c | Preparar el proyecto investigado y publicarlo en un repositorio privado de GitHub para continuarlo desde otra computadora | 2026-09-28 | 9e0c4be | [260928-g9c-preparar-el-proyecto-investigado-y-publi](./quick/260928-g9c-preparar-el-proyecto-investigado-y-publi/) |
 
 ## Deferred Items
 
