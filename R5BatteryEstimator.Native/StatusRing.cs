@@ -8,10 +8,13 @@ internal sealed class StatusRing : Forms.Control
     public int Percent { get; set; }
     public string Status { get; set; } = "No cargando";
     public Drawing.Color Accent { get; set; } = Drawing.Color.FromArgb(47, 225, 137);
-    // WinForms controls cannot use a transparent background unless their parent
-    // explicitly supports it. Match the dashboard surface instead so startup
-    // remains reliable on every Windows configuration.
-    public StatusRing() { DoubleBuffered = true; Size = new Drawing.Size(370, 370); BackColor = Drawing.Color.FromArgb(32, 33, 36); }
+    public StatusRing()
+    {
+        SetStyle(Forms.ControlStyles.SupportsTransparentBackColor, true);
+        DoubleBuffered = true;
+        Size = new Drawing.Size(370, 370);
+        BackColor = Drawing.Color.Transparent;
+    }
     protected override void OnPaint(Forms.PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;

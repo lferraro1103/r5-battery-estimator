@@ -38,7 +38,7 @@ internal sealed class BatteryForm : Forms.Form
     public BatteryForm()
     {
         Text = "R5 Battery Estimator";
-        ClientSize = new Drawing.Size(1120, 1010);
+        ClientSize = new Drawing.Size(1080, 970);
         MinimumSize = new Drawing.Size(940, 840);
         FormBorderStyle = Forms.FormBorderStyle.None;
         BackColor = Drawing.Color.FromArgb(10, 17, 23);
