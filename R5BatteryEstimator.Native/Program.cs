@@ -91,7 +91,7 @@ internal sealed class BatteryForm : Forms.Form
         var result = await ProbeRunner.ReadAsync();
         if (result.Percent is not int percent) { _percent.Text = "—%"; _estimate.Text = "—"; _updated.Text = "Sin datos"; _status.Text = result.Message; SetTrayText("R5 Battery Estimator — sin lectura válida"); SetTrayColor(Drawing.Color.DimGray); return; }
         var hours = Math.Round(percent * 2.0);
-        _percent.Text = $"{percent}%"; _bar.Value = percent; _estimate.Text = $"{hours:0} h"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
+        _percent.Text = $"{percent}%"; _estimate.Text = $"{hours:0} h"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
         SetTrayColor(percent > 50 ? Drawing.Color.FromArgb(46, 204, 113) : percent > 20 ? Drawing.Color.FromArgb(241, 196, 15) : Drawing.Color.FromArgb(231, 76, 60));
         SetTrayText($"R5: {percent}% — hasta {hours:0} h (provisional)");
     }
