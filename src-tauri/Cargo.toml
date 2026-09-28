@@ -12,6 +12,10 @@ path = "src/lib.rs"
 name = "r5-battery-estimator"
 path = "src/main.rs"
 
+[[bin]]
+name = "r5-battery-probe"
+path = "src/probe.rs"
+
 [dependencies]
 tauri = { version = "=2.12.0", features = ["tray-icon"] }
 hidapi = { version = "=2.6.7", default-features = false, features = ["windows-native"] }

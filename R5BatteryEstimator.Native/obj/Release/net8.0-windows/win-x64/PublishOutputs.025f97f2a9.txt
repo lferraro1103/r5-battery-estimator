@@ -1,0 +1,8 @@
+C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native\R5BatteryEstimator.Native.pdb
+C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native\r5-battery-probe.exe
+C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native\D3DCompiler_47_cor3.dll
+C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native\PenImc_cor3.dll
+C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native\PresentationNative_cor3.dll
+C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native\vcruntime140_cor3.dll
+C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native\wpfgfx_cor3.dll
+C:\Users\Leaan\Documents\Codex\2026-09-28\tra\outputs\native\R5BatteryEstimator.Native.exe
