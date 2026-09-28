@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Forms = System.Windows.Forms;
 using Drawing = System.Drawing;
@@ -25,6 +26,7 @@ internal sealed class BatteryForm : Forms.Form
     private readonly Forms.ProgressBar _bar = new() { Minimum = 0, Maximum = 100, Height = 9, Style = Forms.ProgressBarStyle.Continuous };
     private readonly Forms.Timer _timer = new() { Interval = 30_000 };
     private readonly Forms.NotifyIcon _tray;
+    private readonly Drawing.Image _mascot;
     private bool _exitRequested;
 
     public BatteryForm()
@@ -42,7 +44,8 @@ internal sealed class BatteryForm : Forms.Form
         menu.Items.Add("Actualizar perfil", null, (_, _) => MarkProfileChecked());
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Cerrar programa", null, (_, _) => ExitProgram());
-        _tray = new Forms.NotifyIcon { Icon = Drawing.SystemIcons.Application, Text = "R5 Battery Estimator", ContextMenuStrip = menu, Visible = true };
+        _mascot = Drawing.Image.FromFile(Path.Combine(AppContext.BaseDirectory, "shark-battery.png"));
+        _tray = new Forms.NotifyIcon { Icon = CreateTrayIcon(Drawing.Color.DodgerBlue), Text = "R5 Battery Estimator", ContextMenuStrip = menu, Visible = true };
         _tray.MouseUp += (_, e) => { if (e.Button == Forms.MouseButtons.Left) menu.Show(Forms.Cursor.Position); };
 
         BuildLayout();
@@ -82,17 +85,48 @@ internal sealed class BatteryForm : Forms.Form
     {
         _status.Text = "Leyendo el receptor…";
         var result = await ProbeRunner.ReadAsync();
-        if (result.Percent is not int percent) { _percent.Text = "—%"; _bar.Value = 0; _estimate.Text = "—"; _updated.Text = "Sin datos"; _status.Text = result.Message; SetTrayText("R5 Battery Estimator — sin lectura válida"); return; }
+        if (result.Percent is not int percent) { _percent.Text = "—%"; _bar.Value = 0; _estimate.Text = "—"; _updated.Text = "Sin datos"; _status.Text = result.Message; SetTrayText("R5 Battery Estimator — sin lectura válida"); SetTrayColor(Drawing.Color.DimGray); return; }
         var hours = Math.Round(percent * 2.0);
         _percent.Text = $"{percent}%"; _bar.Value = percent; _estimate.Text = $"{hours:0} h"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
+        SetTrayColor(percent > 50 ? Drawing.Color.FromArgb(46, 204, 113) : percent > 20 ? Drawing.Color.FromArgb(241, 196, 15) : Drawing.Color.FromArgb(231, 76, 60));
         SetTrayText($"R5: {percent}% — hasta {hours:0} h (provisional)");
     }
 
     private void MarkProfileChecked() { _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = "Perfil 1 revisado. Se actualizará al detectar cambios del mouse."; }
     private void SetTrayText(string text) => _tray.Text = text.Length <= 63 ? text : text[..63];
+    private void SetTrayColor(Drawing.Color color)
+    {
+        _percent.ForeColor = color;
+        _bar.ForeColor = color;
+        var previous = _tray.Icon;
+        _tray.Icon = CreateTrayIcon(color);
+        previous?.Dispose();
+    }
+
+    private Drawing.Icon CreateTrayIcon(Drawing.Color color)
+    {
+        using var bitmap = new Drawing.Bitmap(32, 32);
+        using (var graphics = Drawing.Graphics.FromImage(bitmap))
+        {
+            graphics.Clear(Drawing.Color.Transparent);
+            using var pen = new Drawing.Pen(color, 3);
+            graphics.DrawEllipse(pen, 1, 1, 29, 29);
+            graphics.DrawImage(_mascot, new Drawing.Rectangle(5, 5, 22, 22));
+        }
+        var handle = bitmap.GetHicon();
+        try
+        {
+            using var icon = Drawing.Icon.FromHandle(handle);
+            return (Drawing.Icon)icon.Clone();
+        }
+        finally { DestroyIcon(handle); }
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
     private void ShowPanel() { Show(); WindowState = Forms.FormWindowState.Normal; Activate(); }
     private void ExitProgram() { _exitRequested = true; _tray.Dispose(); Close(); }
-    protected override void Dispose(bool disposing) { if (disposing) _tray.Dispose(); base.Dispose(disposing); }
+    protected override void Dispose(bool disposing) { if (disposing) { _tray.Dispose(); _mascot.Dispose(); } base.Dispose(disposing); }
 }
 
 internal sealed record ProbeReading(int? Percent, bool Charging, string Message);
