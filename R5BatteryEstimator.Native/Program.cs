@@ -44,7 +44,7 @@ internal sealed class BatteryForm : Forms.Form
         menu.Items.Add("Actualizar perfil", null, (_, _) => MarkProfileChecked());
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Cerrar programa", null, (_, _) => ExitProgram());
-        _mascot = Drawing.Image.FromFile(Path.Combine(AppContext.BaseDirectory, "shark-battery.png"));
+        _mascot = Drawing.Image.FromFile(Path.Combine(AppContext.BaseDirectory, "Assets", "shark-battery.png"));
         _tray = new Forms.NotifyIcon { Icon = CreateTrayIcon(Drawing.Color.DodgerBlue), Text = "R5 Battery Estimator", ContextMenuStrip = menu, Visible = true };
         _tray.MouseUp += (_, e) => { if (e.Button == Forms.MouseButtons.Left) menu.Show(Forms.Cursor.Position); };
 
