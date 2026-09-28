@@ -3,7 +3,7 @@ pub mod battery;
 use battery::{protocol::ParsedBattery, transport::HidTransport};
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ProbeResult {
     Ok { reading: ParsedBattery },
