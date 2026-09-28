@@ -27,3 +27,4 @@ pub fn probe_once(transport: &dyn HidTransport) -> ProbeResult {
     }
 }
 
+

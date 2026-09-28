@@ -1,4 +1,9 @@
-use r5_battery_estimator::{battery::transport::R5HidTransport, probe_once};
+use r5_battery_estimator::{ProbeResult, battery::transport::R5HidTransport, probe_once};
+
+#[tauri::command]
+fn current_battery() -> ProbeResult {
+    probe_once(&R5HidTransport::new())
+}
 
 fn main() {
     if std::env::args().any(|arg| arg == "--probe-once") {
@@ -13,6 +18,9 @@ fn main() {
         return;
     }
 
-    eprintln!("R5 Battery Estimator: use --probe-once until the desktop shell is built");
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![current_battery])
+        .run(tauri::generate_context!())
+        .expect("failed to run R5 Battery Estimator");
 }
 
