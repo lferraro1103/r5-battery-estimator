@@ -1,3 +1,24 @@
-.planning/
-AGENTS.md
+# Dependencies and generated artifacts
+node_modules/
+.planning/research/.cache/
+.planning/spikes/001-current-battery-telemetry/extracted/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+
+# Build and editor caches
+target/
+dist/
+.vite/
+*.log
+.DS_Store
+Thumbs.db
 

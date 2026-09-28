@@ -1,0 +1,9 @@
+{
+  "name": "r5-ultra-battery-probe",
+  "private": true,
+  "version": "0.0.0",
+  "type": "commonjs",
+  "dependencies": {
+    "node-hid": "^3.2.0"
+  }
+}
