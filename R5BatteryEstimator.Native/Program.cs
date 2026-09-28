@@ -26,10 +26,11 @@ internal sealed class BatteryForm : Forms.Form
     private readonly Forms.Label _updated = new() { Text = "Sin datos", Font = new Drawing.Font("Segoe UI", 16, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
     private readonly Forms.Panel _circle = new() { Size = new Drawing.Size(142, 142), BackColor = Drawing.Color.DimGray };
     private readonly BatteryHistory _history = new();
-    private readonly BatteryChart _chart = new() { Location = new Drawing.Point(30, 377), Size = new Drawing.Size(600, 145) };
+    private readonly BatteryChart _chart = new() { Location = new Drawing.Point(30, 392), Size = new Drawing.Size(600, 135) };
     private readonly Forms.Timer _timer = new() { Interval = 30_000 };
     private readonly Forms.NotifyIcon _tray;
     private readonly Drawing.Image _mascot;
+    private readonly Drawing.Image _taskbarMascot;
     private bool _exitRequested;
 
     public BatteryForm()
@@ -48,6 +49,7 @@ internal sealed class BatteryForm : Forms.Form
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Cerrar programa", null, (_, _) => ExitProgram());
         _mascot = Drawing.Image.FromFile(Path.Combine(AppContext.BaseDirectory, "Assets", "shark-battery.png"));
+        _taskbarMascot = Drawing.Image.FromFile(Path.Combine(AppContext.BaseDirectory, "Assets", "shark-head-battery.png"));
         Icon = CreateAppIcon();
         _tray = new Forms.NotifyIcon { Icon = CreateTrayIcon(Drawing.Color.DodgerBlue), Text = "R5 Battery Estimator", ContextMenuStrip = menu, Visible = true };
         _tray.MouseUp += (_, e) => { if (e.Button == Forms.MouseButtons.Left) menu.Show(Forms.Cursor.Position); };
@@ -73,8 +75,8 @@ internal sealed class BatteryForm : Forms.Form
         _status.Location = new Drawing.Point(195, 158);
         var left = Card("DURACIÓN DE CARGA COMPLETA", _estimate, "Se aprende con tu descarga real.", 30);
         var right = Card("ÚLTIMA LECTURA", _updated, "Actualiza cada 30 segundos.", 335);
-        left.Top = 267; right.Top = 267;
-        var chartTitle = new Forms.Label { Text = "HISTORIAL: HORA / PORCENTAJE", AutoSize = true, Location = new Drawing.Point(30, 356), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
+        left.Top = 255; right.Top = 255;
+        var chartTitle = new Forms.Label { Text = "HISTORIAL: HORA / PORCENTAJE", AutoSize = true, Location = new Drawing.Point(30, 370), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
         var hint = new Forms.Label { Text = "La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(30, 557), ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
         var update = new Forms.Button { Text = "Actualizar ahora", AutoSize = true, Location = new Drawing.Point(500, 547), BackColor = Drawing.Color.FromArgb(220, 55, 55), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat };
         update.FlatAppearance.BorderSize = 0; update.Click += async (_, _) => await RefreshAsync();
@@ -119,9 +121,15 @@ internal sealed class BatteryForm : Forms.Form
         using (var graphics = Drawing.Graphics.FromImage(bitmap))
         {
             graphics.Clear(Drawing.Color.Transparent);
-            using var pen = new Drawing.Pen(color, 3);
-            graphics.DrawEllipse(pen, 1, 1, 29, 29);
-            graphics.DrawImage(_mascot, new Drawing.Rectangle(2, 2, 28, 28), 145, 110, 735, 850, Drawing.GraphicsUnit.Pixel);
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var outline = new Drawing.Pen(Drawing.Color.FromArgb(18, 38, 58), 2);
+            using var fill = new Drawing.SolidBrush(color);
+            graphics.FillRectangle(fill, 5, 10, 21, 16);
+            graphics.DrawRectangle(outline, 5, 10, 21, 16);
+            graphics.FillRectangle(fill, 11, 6, 9, 4);
+            graphics.DrawRectangle(outline, 11, 6, 9, 4);
+            using var fin = new Drawing.SolidBrush(Drawing.Color.FromArgb(34, 148, 224));
+            graphics.FillPolygon(fin, [new Drawing.Point(8, 21), new Drawing.Point(14, 11), new Drawing.Point(18, 21)]);
         }
         var handle = bitmap.GetHicon();
         try
@@ -138,7 +146,7 @@ internal sealed class BatteryForm : Forms.Form
         using (var graphics = Drawing.Graphics.FromImage(bitmap))
         {
             graphics.Clear(Drawing.Color.Transparent);
-            graphics.DrawImage(_mascot, new Drawing.Rectangle(0, 0, 32, 32), 145, 110, 735, 850, Drawing.GraphicsUnit.Pixel);
+            graphics.DrawImage(_taskbarMascot, new Drawing.Rectangle(0, 0, 32, 32));
         }
         var handle = bitmap.GetHicon();
         try
@@ -153,7 +161,7 @@ internal sealed class BatteryForm : Forms.Form
     private static extern bool DestroyIcon(IntPtr hIcon);
     private void ShowPanel() { Show(); WindowState = Forms.FormWindowState.Normal; Activate(); }
     private void ExitProgram() { _exitRequested = true; _tray.Dispose(); Close(); }
-    protected override void Dispose(bool disposing) { if (disposing) { _tray.Dispose(); _mascot.Dispose(); } base.Dispose(disposing); }
+    protected override void Dispose(bool disposing) { if (disposing) { _tray.Dispose(); _mascot.Dispose(); _taskbarMascot.Dispose(); } base.Dispose(disposing); }
 }
 
 internal sealed record ProbeReading(int? Percent, bool Charging, string Message);

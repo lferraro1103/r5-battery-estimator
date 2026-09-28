@@ -14,5 +14,7 @@
     <None Include="..\src-tauri\target\release\r5-battery-probe.exe" Link="r5-battery-probe.exe" CopyToOutputDirectory="PreserveNewest" />
     <None Remove="Assets\shark-battery.png" />
     <Content Include="Assets\shark-battery.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Remove="Assets\shark-head-battery.png" />
+    <Content Include="Assets\shark-head-battery.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
