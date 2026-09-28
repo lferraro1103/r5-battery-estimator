@@ -19,7 +19,7 @@ internal sealed class StatusRing : Forms.Control
     {
         e.Graphics.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias;
         var size = Math.Min(Width, Height); var inset = Math.Max(20, size / 15); var ring = new Drawing.Rectangle(inset, inset, size - inset * 2, size - inset * 2);
-        using var glowPen = new Drawing.Pen(Drawing.Color.FromArgb(32, Accent), Math.Max(42, size / 6));
+        using var glowPen = new Drawing.Pen(Drawing.Color.FromArgb(24, Accent), Math.Max(36, size / 7)) { StartCap = Drawing.Drawing2D.LineCap.Round, EndCap = Drawing.Drawing2D.LineCap.Round };
         e.Graphics.DrawArc(glowPen, ring, -90, Percent * 3.6f);
         using var basePen = new Drawing.Pen(Drawing.Color.FromArgb(40, 51, 62), 22);
         using var valuePen = new Drawing.Pen(Accent, 22) { StartCap = Drawing.Drawing2D.LineCap.Round, EndCap = Drawing.Drawing2D.LineCap.Round };

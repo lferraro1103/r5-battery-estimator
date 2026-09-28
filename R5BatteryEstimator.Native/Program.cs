@@ -88,7 +88,7 @@ internal sealed class BatteryForm : Forms.Form
         var badge = new Forms.Label { Text = "R5 ULTRA", AutoSize = true, Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right, Location = new Drawing.Point(875, 111), ForeColor = Drawing.Color.FromArgb(255, 83, 83), Font = new Drawing.Font("Segoe UI", 16, Drawing.FontStyle.Bold) };
         var panelLogo = new Forms.PictureBox { Image = _mascot, Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Right, Location = new Drawing.Point(1000, 82), Size = new Drawing.Size(84, 84), SizeMode = Forms.PictureBoxSizeMode.Zoom };
         _status.Visible = false;
-        _ring.Location = new Drawing.Point(42, 200); _ring.Size = new Drawing.Size(345, 345);
+        _ring.Location = new Drawing.Point(58, 218); _ring.Size = new Drawing.Size(305, 305);
         var left = Card("◷   DURACIÓN DE CARGA COMPLETA", _estimate, "Se aprende con tu descarga real.", 405);
         var right = Card("▮▮   AUTONOMÍA RESTANTE", _remaining, "Se recalcula cada 30 segundos.", 755);
         left.Top = right.Top = 285; left.Size = new Drawing.Size(330, 230); right.Size = new Drawing.Size(330, 230);
@@ -96,7 +96,7 @@ internal sealed class BatteryForm : Forms.Form
         _estimate.Font = new Drawing.Font("Segoe UI", 34, Drawing.FontStyle.Bold); _remaining.Font = new Drawing.Font("Segoe UI", 48, Drawing.FontStyle.Bold);
         _chart.Location = new Drawing.Point(38, 590); _chart.Size = new Drawing.Size(1044, 280); _chart.Anchor = Forms.AnchorStyles.Top | Forms.AnchorStyles.Left | Forms.AnchorStyles.Right;
         var hint = new Forms.Label { Text = "ⓘ   La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(50, 915), Anchor = Forms.AnchorStyles.Left | Forms.AnchorStyles.Bottom, ForeColor = Drawing.Color.FromArgb(190, 208, 233), Font = new Drawing.Font("Segoe UI", 13) };
-        var update = new Forms.Button { Text = "⟳   Actualizar ahora", Size = new Drawing.Size(225, 58), Location = new Drawing.Point(855, 895), Anchor = Forms.AnchorStyles.Right | Forms.AnchorStyles.Bottom, BackColor = Drawing.Color.FromArgb(225, 54, 60), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat, Font = new Drawing.Font("Segoe UI", 12) };
+        var update = new RoundedButton { Text = "⟳   Actualizar ahora", Size = new Drawing.Size(228, 60), Location = new Drawing.Point(852, 892), Anchor = Forms.AnchorStyles.Right | Forms.AnchorStyles.Bottom, BackColor = Drawing.Color.FromArgb(232, 55, 61), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat, Font = new Drawing.Font("Segoe UI", 14, Drawing.FontStyle.Regular) };
         update.FlatAppearance.BorderSize = 0; update.Click += async (_, _) => await RefreshAsync();
         Controls.AddRange([chrome, title, subtitle, badge, panelLogo, _ring, left, right, _chart, hint, update]);
         SetRoundedRegion();
@@ -105,9 +105,9 @@ internal sealed class BatteryForm : Forms.Form
     private Forms.Panel Card(string title, Forms.Label value, string note, int left)
     {
         var card = new RoundedPanel { Location = new Drawing.Point(left, 250), Size = new Drawing.Size(295, 92), BackColor = Drawing.Color.FromArgb(16, 27, 35) };
-        card.Controls.Add(new Forms.Label { Text = title, AutoSize = true, Location = new Drawing.Point(25, 37), ForeColor = Drawing.Color.FromArgb(199, 216, 241), Font = new Drawing.Font("Segoe UI", 11) });
-        value.Location = new Drawing.Point(25, 91); card.Controls.Add(value);
-        card.Controls.Add(new Forms.Label { Text = note, AutoSize = true, Location = new Drawing.Point(25, 185), ForeColor = Drawing.Color.FromArgb(190, 208, 233), Font = new Drawing.Font("Segoe UI", 11) });
+        card.Controls.Add(new Forms.Label { Text = title, AutoSize = true, Location = new Drawing.Point(28, 39), ForeColor = Drawing.Color.FromArgb(199, 216, 241), Font = new Drawing.Font("Segoe UI", 11) });
+        value.Location = new Drawing.Point(28, 88); card.Controls.Add(value);
+        card.Controls.Add(new Forms.Label { Text = note, AutoSize = true, Location = new Drawing.Point(28, 181), ForeColor = Drawing.Color.FromArgb(190, 208, 233), Font = new Drawing.Font("Segoe UI", 11) });
         return card;
     }
 
