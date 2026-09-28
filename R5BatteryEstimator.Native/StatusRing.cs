@@ -25,12 +25,12 @@ internal sealed class StatusRing : Forms.Control
         using var valuePen = new Drawing.Pen(Accent, 22) { StartCap = Drawing.Drawing2D.LineCap.Round, EndCap = Drawing.Drawing2D.LineCap.Round };
         e.Graphics.DrawArc(basePen, ring, -90, 360);
         e.Graphics.DrawArc(valuePen, ring, -90, Percent * 3.6f);
-        using var valueFont = new Drawing.Font("Segoe UI", size / 6.2f, Drawing.FontStyle.Bold);
+        using var valueFont = new Drawing.Font("Segoe UI", size / 6.4f, Drawing.FontStyle.Bold);
         using var statusFont = new Drawing.Font("Segoe UI", size / 25f);
         var value = $"{Percent}%"; var valueSize = e.Graphics.MeasureString(value, valueFont);
-        e.Graphics.DrawString(value, valueFont, Drawing.Brushes.White, (size - valueSize.Width) / 2, size * .32f);
+        e.Graphics.DrawString(value, valueFont, Drawing.Brushes.White, (size - valueSize.Width) / 2, size * .31f);
         using var batteryPen = new Drawing.Pen(Accent, 4);
-        var batteryWidth = size / 9; var batteryHeight = size / 18; var batteryLeft = size / 2 - (batteryWidth + 6) / 2; e.Graphics.DrawRectangle(batteryPen, batteryLeft, (int)(size * .56f), batteryWidth, batteryHeight); e.Graphics.DrawLine(batteryPen, batteryLeft + batteryWidth, (int)(size * .58f), batteryLeft + batteryWidth + 6, (int)(size * .58f));
+        var batteryWidth = size / 9; var batteryHeight = size / 18; var batteryLeft = size / 2 - (batteryWidth + 6) / 2; e.Graphics.DrawRectangle(batteryPen, batteryLeft, (int)(size * .575f), batteryWidth, batteryHeight); e.Graphics.DrawLine(batteryPen, batteryLeft + batteryWidth, (int)(size * .595f), batteryLeft + batteryWidth + 6, (int)(size * .595f));
         var statusSize = e.Graphics.MeasureString(Status, statusFont);
         e.Graphics.DrawString(Status, statusFont, Drawing.Brushes.LightSteelBlue, (size - statusSize.Width) / 2, size * .65f);
     }
