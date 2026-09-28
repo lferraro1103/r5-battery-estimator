@@ -82,11 +82,14 @@ internal sealed class BatteryForm : Forms.Form
     {
         _status.Text = "Leyendo el receptor…";
         var result = await ProbeRunner.ReadAsync();
-        if (result.Percent is not int percent) { _percent.Text = "—%"; _bar.Value = 0; _estimate.Text = "—"; _updated.Text = "Sin datos"; _status.Text = result.Message; return; }
-        _percent.Text = $"{percent}%"; _bar.Value = percent; _estimate.Text = $"{Math.Round(percent * 2.0):0} h"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
+        if (result.Percent is not int percent) { _percent.Text = "—%"; _bar.Value = 0; _estimate.Text = "—"; _updated.Text = "Sin datos"; _status.Text = result.Message; SetTrayText("R5 Battery Estimator — sin lectura válida"); return; }
+        var hours = Math.Round(percent * 2.0);
+        _percent.Text = $"{percent}%"; _bar.Value = percent; _estimate.Text = $"{hours:0} h"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
+        SetTrayText($"R5: {percent}% — hasta {hours:0} h (provisional)");
     }
 
     private void MarkProfileChecked() { _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = "Perfil 1 revisado. Se actualizará al detectar cambios del mouse."; }
+    private void SetTrayText(string text) => _tray.Text = text.Length <= 63 ? text : text[..63];
     private void ShowPanel() { Show(); WindowState = Forms.FormWindowState.Normal; Activate(); }
     private void ExitProgram() { _exitRequested = true; _tray.Dispose(); Close(); }
     protected override void Dispose(bool disposing) { if (disposing) _tray.Dispose(); base.Dispose(disposing); }
