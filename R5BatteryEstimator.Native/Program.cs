@@ -129,7 +129,7 @@ internal sealed class BatteryForm : Forms.Form
             graphics.FillRectangle(fill, 11, 6, 9, 4);
             graphics.DrawRectangle(outline, 11, 6, 9, 4);
             using var fin = new Drawing.SolidBrush(Drawing.Color.FromArgb(34, 148, 224));
-            graphics.FillPolygon(fin, [new Drawing.Point(8, 21), new Drawing.Point(14, 11), new Drawing.Point(18, 21)]);
+            graphics.FillPolygon(fin, new Drawing.Point[] { new(8, 21), new(14, 11), new(18, 21) });
         }
         var handle = bitmap.GetHicon();
         try
