@@ -30,7 +30,7 @@ internal sealed class StatusRing : Forms.Control
         var value = $"{Percent}%"; var valueSize = e.Graphics.MeasureString(value, valueFont);
         e.Graphics.DrawString(value, valueFont, Drawing.Brushes.White, (size - valueSize.Width) / 2, size * .28f);
         using var batteryPen = new Drawing.Pen(Accent, 4);
-        var batteryWidth = size / 9; var batteryHeight = size / 18; var batteryLeft = size / 2 - (batteryWidth + 6) / 2; e.Graphics.DrawRectangle(batteryPen, batteryLeft, (int)(size * .53f), batteryWidth, batteryHeight); e.Graphics.DrawLine(batteryPen, batteryLeft + batteryWidth, (int)(size * .55f), batteryLeft + batteryWidth + 6, (int)(size * .55f));
+        var batteryWidth = size / 9; var batteryHeight = size / 18; var batteryLeft = size / 2 - (batteryWidth + 6) / 2; e.Graphics.DrawRectangle(batteryPen, batteryLeft, (int)(size * .49f), batteryWidth, batteryHeight); e.Graphics.DrawLine(batteryPen, batteryLeft + batteryWidth, (int)(size * .51f), batteryLeft + batteryWidth + 6, (int)(size * .51f));
         var statusSize = e.Graphics.MeasureString(Status, statusFont);
         e.Graphics.DrawString(Status, statusFont, Drawing.Brushes.LightSteelBlue, (size - statusSize.Width) / 2, size * .65f);
     }

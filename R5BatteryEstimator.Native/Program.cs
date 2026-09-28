@@ -79,8 +79,7 @@ internal sealed class BatteryForm : Forms.Form
         {
             if (e.Button != Forms.MouseButtons.Left) return;
             if (e.X >= chrome.Width - 64) { Hide(); return; }
-            if (e.X >= chrome.Width - 112) { WindowState = WindowState == Forms.FormWindowState.Maximized ? Forms.FormWindowState.Normal : Forms.FormWindowState.Maximized; return; }
-            if (e.X >= chrome.Width - 160) { WindowState = Forms.FormWindowState.Minimized; return; }
+            if (e.X >= chrome.Width - 120) { WindowState = Forms.FormWindowState.Minimized; return; }
             DragWindow(chrome, e);
         };
         var tinyLogo = new Forms.PictureBox { Image = _mascot, Location = new Drawing.Point(20, 11), Size = new Drawing.Size(29, 29), SizeMode = Forms.PictureBoxSizeMode.Zoom };
@@ -121,8 +120,7 @@ internal sealed class BatteryForm : Forms.Form
         using var symbol = new Drawing.Pen(Drawing.Color.FromArgb(213, 225, 238), 2);
         graphics.DrawLine(border, 0, chrome.Height - 1, chrome.Width, chrome.Height - 1);
         var y = chrome.Height / 2;
-        graphics.DrawLine(symbol, chrome.Width - 148, y, chrome.Width - 130, y);
-        graphics.DrawRectangle(symbol, chrome.Width - 100, y - 9, 18, 18);
+        graphics.DrawLine(symbol, chrome.Width - 102, y, chrome.Width - 84, y);
         graphics.DrawLine(symbol, chrome.Width - 54, y - 10, chrome.Width - 34, y + 10);
         graphics.DrawLine(symbol, chrome.Width - 34, y - 10, chrome.Width - 54, y + 10);
     }
