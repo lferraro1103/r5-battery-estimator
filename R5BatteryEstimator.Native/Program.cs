@@ -26,6 +26,7 @@ internal sealed class BatteryForm : Forms.Form
     private readonly Forms.Label _remaining = new() { Text = "—", Font = new Drawing.Font("Segoe UI", 22, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
     private readonly Forms.Label _updated = new() { Text = "Sin datos", Font = new Drawing.Font("Segoe UI", 16, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
     private readonly Forms.Panel _circle = new() { Size = new Drawing.Size(142, 142), BackColor = Drawing.Color.DimGray };
+    private readonly StatusRing _ring = new() { Location = new Drawing.Point(45, 210) };
     private readonly BatteryHistory _history = new();
     private readonly BatteryChart _chart = new() { Location = new Drawing.Point(30, 392), Size = new Drawing.Size(600, 135) };
     private readonly Forms.Timer _timer = new() { Interval = 30_000 };
@@ -37,7 +38,7 @@ internal sealed class BatteryForm : Forms.Form
     public BatteryForm()
     {
         Text = "R5 Battery Estimator";
-        ClientSize = new Drawing.Size(660, 610);
+        ClientSize = new Drawing.Size(1260, 1160);
         FormBorderStyle = Forms.FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         BackColor = Drawing.Color.FromArgb(32, 33, 36);
@@ -66,24 +67,21 @@ internal sealed class BatteryForm : Forms.Form
 
     private void BuildLayout()
     {
-        var title = new Forms.Label { Text = "R5 Battery Estimator", Font = new Drawing.Font("Segoe UI", 19, Drawing.FontStyle.Bold), AutoSize = true, Location = new Drawing.Point(28, 22), ForeColor = Drawing.Color.White };
-        var badge = new Forms.Label { Text = "R5 ULTRA", AutoSize = true, Location = new Drawing.Point(475, 28), ForeColor = Drawing.Color.FromArgb(230, 80, 75), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
-        var panelLogo = new Forms.PictureBox { Image = _mascot, Location = new Drawing.Point(570, 10), Size = new Drawing.Size(58, 58), SizeMode = Forms.PictureBoxSizeMode.Zoom };
-        var caption = new Forms.Label { Text = "BATERÍA ACTUAL", AutoSize = true, Location = new Drawing.Point(30, 79), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
-        _circle.Location = new Drawing.Point(30, 98);
-        using (var path = new GraphicsPath()) { path.AddEllipse(0, 0, _circle.Width, _circle.Height); _circle.Region = new Drawing.Region(path); }
-        _circle.Controls.Add(_percent);
-        _status.Location = new Drawing.Point(195, 158);
-        var left = Card("DURACIÓN DE CARGA COMPLETA", _estimate, "Se aprende con tu descarga real.", 30);
-        var right = Card("AUTONOMÍA RESTANTE", _remaining, "Se recalcula cada 30 segundos.", 335);
-        left.Top = 255; right.Top = 255;
-        left.Height = 112; right.Height = 112;
-        var chartTitle = new Forms.Label { Text = "HISTORIAL: HORA / PORCENTAJE", AutoSize = true, Location = new Drawing.Point(30, 388), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
-        _chart.Location = new Drawing.Point(30, 410);
+        var title = new Forms.Label { Text = "R5 Battery Estimator", Font = new Drawing.Font("Segoe UI", 48, Drawing.FontStyle.Bold), AutoSize = true, Location = new Drawing.Point(68, 82), ForeColor = Drawing.Color.White };
+        var subtitle = new Forms.Label { Text = "Se aprende con tu descarga real.", Font = new Drawing.Font("Segoe UI", 20), AutoSize = true, Location = new Drawing.Point(72, 160), ForeColor = Drawing.Color.LightSteelBlue };
+        var badge = new Forms.Label { Text = "R5 ULTRA", AutoSize = true, Location = new Drawing.Point(980, 110), ForeColor = Drawing.Color.FromArgb(255, 83, 83), Font = new Drawing.Font("Segoe UI", 18, Drawing.FontStyle.Bold) };
+        var panelLogo = new Forms.PictureBox { Image = _mascot, Location = new Drawing.Point(1125, 82), Size = new Drawing.Size(95, 95), SizeMode = Forms.PictureBoxSizeMode.Zoom };
+        _status.Visible = false;
+        var left = Card("◷  DURACIÓN DE CARGA COMPLETA", _estimate, "Se aprende con tu descarga real.", 460);
+        var right = Card("▮▮  AUTONOMÍA RESTANTE", _remaining, "Se recalcula cada 30 segundos.", 875);
+        left.Top = 320; right.Top = 320; left.Size = new Drawing.Size(390, 255); right.Size = new Drawing.Size(360, 255);
+        _estimate.Font = new Drawing.Font("Segoe UI", 42, Drawing.FontStyle.Bold); _remaining.Font = new Drawing.Font("Segoe UI", 62, Drawing.FontStyle.Bold);
+        var chartTitle = new Forms.Label { Text = "▮▮  HISTORIAL: HORA / PORCENTAJE", AutoSize = true, Location = new Drawing.Point(82, 690), ForeColor = Drawing.Color.LightSteelBlue, Font = new Drawing.Font("Segoe UI", 18, Drawing.FontStyle.Bold) };
+        _chart.Location = new Drawing.Point(45, 665); _chart.Size = new Drawing.Size(1168, 380);
         var hint = new Forms.Label { Text = "La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(30, 585), ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
         var update = new Forms.Button { Text = "Actualizar ahora", AutoSize = true, Location = new Drawing.Point(500, 575), BackColor = Drawing.Color.FromArgb(220, 55, 55), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat };
         update.FlatAppearance.BorderSize = 0; update.Click += async (_, _) => await RefreshAsync();
-        Controls.AddRange([title, badge, panelLogo, caption, _circle, _status, left, right, chartTitle, _chart, hint, update]);
+        Controls.AddRange([title, subtitle, badge, panelLogo, _ring, left, right, chartTitle, _chart]);
     }
 
     private Forms.Panel Card(string title, Forms.Label value, string note, int left)
@@ -104,7 +102,7 @@ internal sealed class BatteryForm : Forms.Form
         _history.Add(percent, result.Charging);
         _chart.Items = _history.Recent(TimeSpan.FromHours(24));
         var fullChargeHours = _history.LearnedFullChargeHours() ?? 200;
-        _percent.Text = $"{percent}%"; _estimate.Text = _history.LearnedFullChargeHours() is double learned ? $"{learned:0} h" : "Aprendiendo"; _remaining.Text = $"{Math.Round(percent * fullChargeHours / 100):0} h"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
+        _ring.Percent = percent; _ring.Status = result.Charging ? "Cargando" : "No cargando"; _ring.Invalidate(); _percent.Text = $"{percent}%"; _estimate.Text = _history.LearnedFullChargeHours() is double learned ? $"{learned:0} h" : "Aprendiendo"; _remaining.Text = $"{Math.Round(percent * fullChargeHours / 100):0} h"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
         SetTrayColor(percent > 50 ? Drawing.Color.FromArgb(46, 204, 113) : percent > 20 ? Drawing.Color.FromArgb(241, 196, 15) : Drawing.Color.FromArgb(231, 76, 60));
         SetTrayText($"R5: {percent}% — hasta {Math.Round(percent * fullChargeHours / 100):0} h");
     }
@@ -113,7 +111,7 @@ internal sealed class BatteryForm : Forms.Form
     private void SetTrayText(string text) => _tray.Text = text.Length <= 63 ? text : text[..63];
     private void SetTrayColor(Drawing.Color color)
     {
-        _circle.BackColor = color;
+        _ring.Accent = color; _ring.Invalidate();
         var previous = _tray.Icon;
         _tray.Icon = CreateTrayIcon(color);
         previous?.Dispose();
