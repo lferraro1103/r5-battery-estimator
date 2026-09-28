@@ -23,6 +23,7 @@ internal sealed class BatteryForm : Forms.Form
     private readonly Forms.Label _percent = new() { Text = "—%", Font = new Drawing.Font("Segoe UI", 32, Drawing.FontStyle.Bold), AutoSize = false, TextAlign = Drawing.ContentAlignment.MiddleCenter, Dock = Forms.DockStyle.Fill, ForeColor = Drawing.Color.White };
     private readonly Forms.Label _status = new() { Text = "Leyendo el receptor…", AutoSize = true, ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
     private readonly Forms.Label _estimate = new() { Text = "—", Font = new Drawing.Font("Segoe UI", 22, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
+    private readonly Forms.Label _remaining = new() { Text = "—", Font = new Drawing.Font("Segoe UI", 22, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
     private readonly Forms.Label _updated = new() { Text = "Sin datos", Font = new Drawing.Font("Segoe UI", 16, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
     private readonly Forms.Panel _circle = new() { Size = new Drawing.Size(142, 142), BackColor = Drawing.Color.DimGray };
     private readonly BatteryHistory _history = new();
@@ -74,7 +75,7 @@ internal sealed class BatteryForm : Forms.Form
         _circle.Controls.Add(_percent);
         _status.Location = new Drawing.Point(195, 158);
         var left = Card("DURACIÓN DE CARGA COMPLETA", _estimate, "Se aprende con tu descarga real.", 30);
-        var right = Card("ÚLTIMA LECTURA", _updated, "Actualiza cada 30 segundos.", 335);
+        var right = Card("AUTONOMÍA RESTANTE", _remaining, "Se recalcula cada 30 segundos.", 335);
         left.Top = 255; right.Top = 255;
         var chartTitle = new Forms.Label { Text = "HISTORIAL: HORA / PORCENTAJE", AutoSize = true, Location = new Drawing.Point(30, 370), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
         var hint = new Forms.Label { Text = "La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(30, 557), ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
@@ -96,13 +97,14 @@ internal sealed class BatteryForm : Forms.Form
     {
         _status.Text = "Leyendo el receptor…";
         var result = await ProbeRunner.ReadAsync();
-        if (result.Percent is not int percent) { _percent.Text = "—%"; _estimate.Text = _history.LearnedFullChargeHours() is double previous ? $"{previous:0} h" : "Aprendiendo"; _updated.Text = "Sin datos"; _status.Text = result.Message; SetTrayText("R5 Battery Estimator — sin lectura válida"); SetTrayColor(Drawing.Color.DimGray); return; }
+        if (result.Percent is not int percent) { _percent.Text = "—%"; _estimate.Text = _history.LearnedFullChargeHours() is double previous ? $"{previous:0} h" : "Aprendiendo"; _remaining.Text = "—"; _updated.Text = "Sin datos"; _status.Text = result.Message; SetTrayText("R5 Battery Estimator — sin lectura válida"); SetTrayColor(Drawing.Color.DimGray); return; }
         var hours = Math.Round(percent * 2.0);
         _history.Add(percent, result.Charging);
         _chart.Items = _history.Recent(TimeSpan.FromHours(24));
-        _percent.Text = $"{percent}%"; _estimate.Text = _history.LearnedFullChargeHours() is double learned ? $"{learned:0} h" : "Aprendiendo"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
+        var fullChargeHours = _history.LearnedFullChargeHours() ?? 200;
+        _percent.Text = $"{percent}%"; _estimate.Text = _history.LearnedFullChargeHours() is double learned ? $"{learned:0} h" : "Aprendiendo"; _remaining.Text = $"{Math.Round(percent * fullChargeHours / 100):0} h"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
         SetTrayColor(percent > 50 ? Drawing.Color.FromArgb(46, 204, 113) : percent > 20 ? Drawing.Color.FromArgb(241, 196, 15) : Drawing.Color.FromArgb(231, 76, 60));
-        SetTrayText($"R5: {percent}% — hasta {hours:0} h (provisional)");
+        SetTrayText($"R5: {percent}% — hasta {Math.Round(percent * fullChargeHours / 100):0} h");
     }
 
     private void MarkProfileChecked() { _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = "Perfil 1 revisado. Se actualizará al detectar cambios del mouse."; }
