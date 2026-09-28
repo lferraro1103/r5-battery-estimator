@@ -20,6 +20,24 @@ public partial class MainWindow : Window
 
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
 
+    protected override void OnStateChanged(EventArgs e)
+    {
+        base.OnStateChanged(e);
+        if (WindowState == WindowState.Minimized) ((App)System.Windows.Application.Current).HideToTray();
+    }
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        e.Cancel = true;
+        ((App)System.Windows.Application.Current).HideToTray();
+    }
+
+    internal void MarkProfileChecked()
+    {
+        StatusText.Text = "Perfil 1 revisado. Se actualizará al detectar cambios del mouse.";
+        UpdatedText.Text = DateTime.Now.ToString("HH:mm");
+    }
+
     private async Task RefreshAsync()
     {
         StatusText.Text = "Leyendo el receptor…";

@@ -2,10 +2,14 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="App.xaml.cs;MainWindow.xaml.cs" />
+    <Page Remove="App.xaml;MainWindow.xaml" />
+  </ItemGroup>
   <ItemGroup>
     <None Include="..\src-tauri\target\release\r5-battery-probe.exe" Link="r5-battery-probe.exe" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

@@ -1,0 +1,116 @@
+using System.Diagnostics;
+using System.Text.Json;
+using Forms = System.Windows.Forms;
+using Drawing = System.Drawing;
+
+namespace R5BatteryEstimator.Native;
+
+internal static class Program
+{
+    [STAThread]
+    private static void Main()
+    {
+        Forms.Application.EnableVisualStyles();
+        Forms.Application.SetCompatibleTextRenderingDefault(false);
+        Forms.Application.Run(new BatteryForm());
+    }
+}
+
+internal sealed class BatteryForm : Forms.Form
+{
+    private readonly Forms.Label _percent = new() { Text = "—%", Font = new Drawing.Font("Segoe UI", 54, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
+    private readonly Forms.Label _status = new() { Text = "Leyendo el receptor…", AutoSize = true, ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
+    private readonly Forms.Label _estimate = new() { Text = "—", Font = new Drawing.Font("Segoe UI", 22, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
+    private readonly Forms.Label _updated = new() { Text = "Sin datos", Font = new Drawing.Font("Segoe UI", 16, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
+    private readonly Forms.ProgressBar _bar = new() { Minimum = 0, Maximum = 100, Height = 9, Style = Forms.ProgressBarStyle.Continuous };
+    private readonly Forms.Timer _timer = new() { Interval = 30_000 };
+    private readonly Forms.NotifyIcon _tray;
+    private bool _exitRequested;
+
+    public BatteryForm()
+    {
+        Text = "R5 Battery Estimator";
+        ClientSize = new Drawing.Size(660, 410);
+        FormBorderStyle = Forms.FormBorderStyle.FixedSingle;
+        MaximizeBox = false;
+        BackColor = Drawing.Color.FromArgb(32, 33, 36);
+        ForeColor = Drawing.Color.White;
+        StartPosition = Forms.FormStartPosition.CenterScreen;
+
+        var menu = new Forms.ContextMenuStrip();
+        menu.Items.Add("Abrir panel", null, (_, _) => ShowPanel());
+        menu.Items.Add("Actualizar perfil", null, (_, _) => MarkProfileChecked());
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("Cerrar programa", null, (_, _) => ExitProgram());
+        _tray = new Forms.NotifyIcon { Icon = Drawing.SystemIcons.Application, Text = "R5 Battery Estimator", ContextMenuStrip = menu, Visible = true };
+        _tray.MouseUp += (_, e) => { if (e.Button == Forms.MouseButtons.Left) menu.Show(Forms.Cursor.Position); };
+
+        BuildLayout();
+        Load += async (_, _) => await RefreshAsync();
+        _timer.Tick += async (_, _) => await RefreshAsync();
+        _timer.Start();
+        Resize += (_, _) => { if (WindowState == Forms.FormWindowState.Minimized) Hide(); };
+        FormClosing += (_, e) => { if (!_exitRequested) { e.Cancel = true; Hide(); } };
+    }
+
+    private void BuildLayout()
+    {
+        var title = new Forms.Label { Text = "R5 Battery Estimator", Font = new Drawing.Font("Segoe UI", 19, Drawing.FontStyle.Bold), AutoSize = true, Location = new Drawing.Point(28, 22), ForeColor = Drawing.Color.White };
+        var badge = new Forms.Label { Text = "R5 ULTRA", AutoSize = true, Location = new Drawing.Point(500, 28), ForeColor = Drawing.Color.FromArgb(230, 80, 75), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
+        var caption = new Forms.Label { Text = "BATERÍA ACTUAL", AutoSize = true, Location = new Drawing.Point(30, 79), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
+        _percent.Location = new Drawing.Point(25, 95);
+        _status.Location = new Drawing.Point(30, 180);
+        _bar.Location = new Drawing.Point(30, 215); _bar.Width = 600;
+        var left = Card("AUTONOMÍA ESTIMADA", _estimate, "Provisional; se calibrará con tu uso.", 30);
+        var right = Card("ÚLTIMA LECTURA", _updated, "Actualiza cada 30 segundos.", 335);
+        var hint = new Forms.Label { Text = "La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(30, 367), ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
+        var update = new Forms.Button { Text = "Actualizar ahora", AutoSize = true, Location = new Drawing.Point(500, 357), BackColor = Drawing.Color.FromArgb(220, 55, 55), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat };
+        update.FlatAppearance.BorderSize = 0; update.Click += async (_, _) => await RefreshAsync();
+        Controls.AddRange([title, badge, caption, _percent, _status, _bar, left, right, hint, update]);
+    }
+
+    private Forms.Panel Card(string title, Forms.Label value, string note, int left)
+    {
+        var card = new Forms.Panel { Location = new Drawing.Point(left, 250), Size = new Drawing.Size(295, 92), BackColor = Drawing.Color.FromArgb(43, 45, 49) };
+        card.Controls.Add(new Forms.Label { Text = title, AutoSize = true, Location = new Drawing.Point(14, 12), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 8, Drawing.FontStyle.Bold) });
+        value.Location = new Drawing.Point(14, 30); card.Controls.Add(value);
+        card.Controls.Add(new Forms.Label { Text = note, AutoSize = true, Location = new Drawing.Point(14, 67), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 8) });
+        return card;
+    }
+
+    private async Task RefreshAsync()
+    {
+        _status.Text = "Leyendo el receptor…";
+        var result = await ProbeRunner.ReadAsync();
+        if (result.Percent is not int percent) { _percent.Text = "—%"; _bar.Value = 0; _estimate.Text = "—"; _updated.Text = "Sin datos"; _status.Text = result.Message; return; }
+        _percent.Text = $"{percent}%"; _bar.Value = percent; _estimate.Text = $"{Math.Round(percent * 2.0):0} h"; _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = result.Charging ? "Cargando" : "No cargando";
+    }
+
+    private void MarkProfileChecked() { _updated.Text = DateTime.Now.ToString("HH:mm"); _status.Text = "Perfil 1 revisado. Se actualizará al detectar cambios del mouse."; }
+    private void ShowPanel() { Show(); WindowState = Forms.FormWindowState.Normal; Activate(); }
+    private void ExitProgram() { _exitRequested = true; _tray.Dispose(); Close(); }
+    protected override void Dispose(bool disposing) { if (disposing) _tray.Dispose(); base.Dispose(disposing); }
+}
+
+internal sealed record ProbeReading(int? Percent, bool Charging, string Message);
+
+internal static class ProbeRunner
+{
+    public static async Task<ProbeReading> ReadAsync()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "r5-battery-probe.exe");
+        if (!File.Exists(path)) return new(null, false, "Falta el lector HID de la aplicación.");
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo(path, "--probe-once") { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true });
+            if (process is null) return new(null, false, "No se pudo iniciar el lector HID.");
+            var output = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            using var json = JsonDocument.Parse(output);
+            if (json.RootElement.GetProperty("status").GetString() != "ok") return new(null, false, "El mouse respondió con un formato aún no validado.");
+            var reading = json.RootElement.GetProperty("reading");
+            return new(reading.GetProperty("percent").GetInt32(), reading.GetProperty("charging").GetBoolean(), "");
+        }
+        catch { return new(null, false, "No se pudo leer el receptor R5 Ultra."); }
+    }
+}
