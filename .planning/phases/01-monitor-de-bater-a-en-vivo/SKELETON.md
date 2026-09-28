@@ -27,6 +27,16 @@
 - [x] UI: menú nativo de bandeja y panel React conectados al mismo snapshot.
 - [x] Deployment: comandos locales reproducibles y bundle NSIS de Windows.
 
+## Binding Execution Spine
+
+1. Portar el transporte Rust/hidapi mínimo y obtener **PASS** contra el probe real, incluida convivencia con el software oficial; FAIL o UNVERIFIED bloquean el resto.
+2. Conectar el transporte aprobado al snapshot, bandeja y panel en un tracer vertical.
+3. Añadir estados antiguos/desconectados, recuperación, instancia única y métricas residentes provisionales.
+4. Finalizar accesibilidad y generar el NSIS reproducible.
+5. Cerrar con aceptación instalada: interrupciones reales, una sola instancia y comparación humana A/B durante juego.
+
+Los presupuestos CPU ≤0.5%, memoria oculta ≤120 MiB y p95 HID ≤500 ms son límites provisionales para recolectar evidencia, no un PASS automático de WIN-02.
+
 ## Out of Scope (Deferred to Later Slices)
 
 - Lectura, creación o actualización de perfiles; **Actualizar perfil** pertenece a Phase 2 per D-05.

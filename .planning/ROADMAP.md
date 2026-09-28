@@ -25,11 +25,13 @@ El MVP avanza desde una lectura HID visible y recuperable en la bandeja hacia pe
   2. Si el mouse duerme, no responde o se desconecta, el usuario ve la causa y la antigüedad de la última lectura, sin que el fallo aparezca como 0%.
   3. Al despertar el mouse, reconectar el receptor o reanudar Windows, las lecturas vuelven sin reiniciar la aplicación.
   4. Si intenta abrirla de nuevo, el usuario sigue teniendo una sola instancia; la consulta periódica no perjudica perceptiblemente la respuesta del mouse durante el juego.
-**Plans**: 3 plans
+**Plans**: 5 plans
 Plans:
-- [ ] 01-01-PLAN.md — Probar el tracer HID → snapshot → bandeja/panel con autonomía provisional.
-- [ ] 01-02-PLAN.md — Añadir estados honestos, recuperación, instancia única y presupuesto residente.
-- [ ] 01-03-PLAN.md — Cerrar UI, bundle NSIS y aceptación Windows/hardware.
+- [ ] 01-01-PLAN.md — Validar el transporte Rust/hidapi contra el probe real antes de construir UI.
+- [ ] 01-02-PLAN.md — Probar el tracer HID → snapshot → bandeja/panel con autonomía provisional.
+- [ ] 01-03-PLAN.md — Añadir estados honestos, recuperación, instancia única y presupuesto residente.
+- [ ] 01-04-PLAN.md — Finalizar UI accesible y bundle NSIS reproducible.
+- [ ] 01-05-PLAN.md — Cerrar aceptación instalada, interrupciones y juego sobre hardware real.
 **UI hint**: yes
 **Risk notes**: Caracterizar los bytes, la granularidad y la cadencia real del firmware, incluida la convivencia con `ATTACK SHARK GAMING.exe`; verificar en hardware que un solo dueño HID, los timeouts y la recuperación no añadan latencia perceptible.
 
@@ -81,7 +83,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Monitor de batería en vivo | 0/3 | Not started | - |
+| 1. Monitor de batería en vivo | 0/5 | Not started | - |
 | 2. Perfiles automáticos reconocibles | 0/TBD | Not started | - |
 | 3. Autonomía aprendida por perfil | 0/TBD | Not started | - |
 | 4. Uso residente y avisos | 0/TBD | Not started | - |
