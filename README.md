@@ -142,4 +142,4 @@ dotnet publish R5BatteryEstimator.Native\R5BatteryEstimator.Native.csproj -c Rel
 
 ## License / Licencia
 
-Personal project; no open-source license has been assigned yet. / Proyecto personal; todavía no se asignó una licencia de código abierto.
+This project is licensed under the [GNU General Public License v3.0](LICENSE). You may use, modify, and redistribute it under the GPL-3.0 terms; derivative distributions must preserve the same license. / Este proyecto se distribuye bajo la [GNU General Public License v3.0](LICENSE). Podés usarlo, modificarlo y redistribuirlo bajo sus términos; las distribuciones derivadas deben conservar la misma licencia.
