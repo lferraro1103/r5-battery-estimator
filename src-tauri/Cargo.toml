@@ -1,0 +1,20 @@
+[package]
+name = "r5-battery-estimator"
+version = "0.1.0"
+description = "Monitor local de batería para Attack Shark R5 Ultra"
+edition = "2024"
+
+[lib]
+name = "r5_battery_estimator"
+path = "src/lib.rs"
+
+[[bin]]
+name = "r5-battery-estimator"
+path = "src/main.rs"
+
+[dependencies]
+hidapi = { version = "=2.6.7", default-features = false, features = ["windows-native"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+thiserror = "=2.0.21"
+
