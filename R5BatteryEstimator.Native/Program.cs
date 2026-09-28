@@ -146,7 +146,7 @@ internal sealed class BatteryForm : Forms.Form
         using (var graphics = Drawing.Graphics.FromImage(bitmap))
         {
             graphics.Clear(Drawing.Color.Transparent);
-            graphics.DrawImage(_taskbarMascot, new Drawing.Rectangle(0, 0, 32, 32));
+            graphics.DrawImage(_mascot, new Drawing.Rectangle(0, 0, 32, 32));
         }
         var handle = bitmap.GetHicon();
         try
