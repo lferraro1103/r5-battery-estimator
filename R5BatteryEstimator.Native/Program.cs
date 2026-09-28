@@ -24,7 +24,7 @@ internal sealed class BatteryForm : Forms.Form
     private readonly Forms.Label _status = new() { Text = "Leyendo el receptor…", AutoSize = true, ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
     private readonly Forms.Label _estimate = new() { Text = "—", Font = new Drawing.Font("Segoe UI", 22, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
     private readonly Forms.Label _updated = new() { Text = "Sin datos", Font = new Drawing.Font("Segoe UI", 16, Drawing.FontStyle.Bold), AutoSize = true, ForeColor = Drawing.Color.White };
-    private readonly Forms.Panel _circle = new() { Size = new Drawing.Size(142, 142), BackColor = Drawing.Color.DimGray };
+    private readonly Forms.Panel _circle = new() { Size = new Drawing.Size(200, 200), BackColor = Drawing.Color.DimGray };
     private readonly Forms.Timer _timer = new() { Interval = 30_000 };
     private readonly Forms.NotifyIcon _tray;
     private readonly Drawing.Image _mascot;
@@ -33,7 +33,7 @@ internal sealed class BatteryForm : Forms.Form
     public BatteryForm()
     {
         Text = "R5 Battery Estimator";
-        ClientSize = new Drawing.Size(660, 410);
+        ClientSize = new Drawing.Size(660, 480);
         FormBorderStyle = Forms.FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         BackColor = Drawing.Color.FromArgb(32, 33, 36);
@@ -63,15 +63,15 @@ internal sealed class BatteryForm : Forms.Form
         var title = new Forms.Label { Text = "R5 Battery Estimator", Font = new Drawing.Font("Segoe UI", 19, Drawing.FontStyle.Bold), AutoSize = true, Location = new Drawing.Point(28, 22), ForeColor = Drawing.Color.White };
         var badge = new Forms.Label { Text = "R5 ULTRA", AutoSize = true, Location = new Drawing.Point(500, 28), ForeColor = Drawing.Color.FromArgb(230, 80, 75), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
         var caption = new Forms.Label { Text = "BATERÍA ACTUAL", AutoSize = true, Location = new Drawing.Point(30, 79), ForeColor = Drawing.Color.FromArgb(185, 190, 200), Font = new Drawing.Font("Segoe UI", 9, Drawing.FontStyle.Bold) };
-        _circle.Location = new Drawing.Point(30, 98);
+        _circle.Location = new Drawing.Point(30, 92);
         using (var path = new GraphicsPath()) { path.AddEllipse(0, 0, _circle.Width, _circle.Height); _circle.Region = new Drawing.Region(path); }
         _circle.Controls.Add(_percent);
-        _status.Location = new Drawing.Point(195, 158);
+        _status.Location = new Drawing.Point(255, 178);
         var left = Card("AUTONOMÍA ESTIMADA", _estimate, "Provisional; se calibrará con tu uso.", 30);
         var right = Card("ÚLTIMA LECTURA", _updated, "Actualiza cada 30 segundos.", 335);
-        left.Top = 267; right.Top = 267;
-        var hint = new Forms.Label { Text = "La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(30, 367), ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
-        var update = new Forms.Button { Text = "Actualizar ahora", AutoSize = true, Location = new Drawing.Point(500, 357), BackColor = Drawing.Color.FromArgb(220, 55, 55), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat };
+        left.Top = 315; right.Top = 315;
+        var hint = new Forms.Label { Text = "La app nunca muestra una desconexión como 0%.", AutoSize = true, Location = new Drawing.Point(30, 437), ForeColor = Drawing.Color.FromArgb(185, 190, 200) };
+        var update = new Forms.Button { Text = "Actualizar ahora", AutoSize = true, Location = new Drawing.Point(500, 427), BackColor = Drawing.Color.FromArgb(220, 55, 55), ForeColor = Drawing.Color.White, FlatStyle = Forms.FlatStyle.Flat };
         update.FlatAppearance.BorderSize = 0; update.Click += async (_, _) => await RefreshAsync();
         Controls.AddRange([title, badge, caption, _circle, _status, left, right, hint, update]);
     }
