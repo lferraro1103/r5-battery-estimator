@@ -25,8 +25,8 @@ use windows::{
         },
         Graphics::GdiPlus::{
             GdipCreateBitmapFromFile, GdipCreateFromHDC, GdipCreateHICONFromBitmap, GdipCreatePen1,
-            GdipDeleteGraphics, GdipDeletePen, GdipDisposeImage, GdipDrawArcI, GdipDrawImageRectI,
-            GdipDrawLinesI, GdipSetPenEndCap, GdipSetPenStartCap, GdipSetSmoothingMode,
+            GdipDeleteGraphics, GdipDeletePen, GdipDisposeImage, GdipDrawArcI, GdipDrawCurve2I,
+            GdipDrawImageRectI, GdipSetPenEndCap, GdipSetPenStartCap, GdipSetSmoothingMode,
             GdiplusStartup, GdiplusStartupInput, LineCapRound, Point, SmoothingModeAntiAlias,
             UnitPixel,
         },
@@ -615,11 +615,6 @@ unsafe fn draw_right(
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn card(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, width: i32, height: i32) {
-    let shadow = CreateSolidBrush(rgb(0x05090D));
-    let old_shadow = SelectObject(dc, shadow.into());
-    let _ = RoundRect(dc, x + 4, y + 5, x + width + 4, y + height + 5, 18, 18);
-    SelectObject(dc, old_shadow);
-    let _ = DeleteObject(shadow.into());
     let brush = CreateSolidBrush(rgb(0x101B23));
     let old = SelectObject(dc, brush.into());
     let _ = RoundRect(dc, x, y, x + width, y + height, 18, 18);
@@ -686,10 +681,9 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
         let mut graphics = std::ptr::null_mut();
         if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
             let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
-            // Same three-layer light treatment as the battery ring, restrained for a data series.
-            draw_gp_lines(graphics, &points, 0x122FE189, 16.0);
-            draw_gp_lines(graphics, &points, 0x382FE189, 8.0);
-            draw_gp_lines(graphics, &points, 0xFF2FE189, 3.0);
+            // Centre-aligned, translucent bloom — never an offset drop shadow.
+            draw_gp_curve(graphics, &points, 0x202FE189, 13.0);
+            draw_gp_curve(graphics, &points, 0xFF2FE189, 3.0);
             let _ = GdipDeleteGraphics(graphics);
         }
     } else if let Some(sample) = visible.first() {
@@ -1166,7 +1160,7 @@ unsafe fn draw_gp_arc(
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn draw_gp_lines(
+unsafe fn draw_gp_curve(
     graphics: *mut windows::Win32::Graphics::GdiPlus::GpGraphics,
     points: &[Point],
     argb: u32,
@@ -1176,7 +1170,8 @@ unsafe fn draw_gp_lines(
     if GdipCreatePen1(argb, width, UnitPixel, &mut pen).0 == 0 {
         let _ = GdipSetPenStartCap(pen, LineCapRound);
         let _ = GdipSetPenEndCap(pen, LineCapRound);
-        let _ = GdipDrawLinesI(graphics, pen, points.as_ptr(), points.len() as i32);
+        // Tension below 0.5 keeps real samples recognisable while avoiding sharp joins.
+        let _ = GdipDrawCurve2I(graphics, pen, points.as_ptr(), points.len() as i32, 0.30);
         let _ = GdipDeletePen(pen);
     }
 }
