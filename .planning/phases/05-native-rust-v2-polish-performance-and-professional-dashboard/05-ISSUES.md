@@ -44,3 +44,4 @@ Verification still required from the user on the live desktop preview because th
 - [x] Switch the card metadata to a more restrained professional typeface, expose remaining autonomy in the tray hover text, and add `Actualizar ahora` to the tray menu.
 - [x] Match the clock-to-duration-title spacing to the autonomy card, align both main values on one vertical rhythm, and use the approved `No cargando` type for the card metadata.
 - [x] Center both metric cards against the battery ring's real vertical centre and move their internal three-line rhythm together on that axis.
+- [x] Compact the lower dashboard and window height, preserve the metric-card/ring centre line, and lift the two main values to balance them between their metadata lines.
