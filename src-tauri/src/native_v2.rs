@@ -16,7 +16,7 @@ use windows::{
     Win32::{
         Foundation::{COLORREF, ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, WPARAM},
         Graphics::Gdi::{
-            ANTIALIASED_QUALITY, BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreatePen,
+            BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreatePen,
             CreateRoundRectRgn, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
             DT_LEFT, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, Ellipse, EndPaint,
             FW_BOLD, FW_NORMAL, FillRect, GetStockObject, HOLLOW_BRUSH, InvalidateRect, LineTo,
@@ -353,10 +353,10 @@ unsafe extern "system" fn window_proc(
             button(dc);
             ring(dc, 58, 198, 305, percent, status);
             clock_glyph(dc, 429, 310);
-            draw_card_copy(
+            draw(
                 dc,
                 "DURACIÓN DE CARGA COMPLETA",
-                449,
+                444,
                 295,
                 290,
                 30,
@@ -377,7 +377,7 @@ unsafe extern "system" fn window_proc(
                 0xF5F5F5,
                 true,
             );
-            draw_card_copy(
+            draw(
                 dc,
                 "Se aprende con tu descarga real.",
                 420,
@@ -389,7 +389,7 @@ unsafe extern "system" fn window_proc(
                 false,
             );
             bars_glyph(dc, 802, 321);
-            draw_card_copy(
+            draw(
                 dc,
                 "AUTONOMÍA RESTANTE",
                 826,
@@ -408,12 +408,12 @@ unsafe extern "system" fn window_proc(
                 795,
                 355,
                 270,
-                70,
+                62,
                 42,
                 0xF5F5F5,
                 true,
             );
-            draw_card_copy(
+            draw(
                 dc,
                 "Se recalcula cada 30 segundos.",
                 795,
@@ -524,52 +524,6 @@ unsafe fn draw(
         &mut rect,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE,
     );
-    SelectObject(dc, old);
-    let _ = DeleteObject(font.into());
-}
-
-/// Card metadata uses the modern variable Segoe face with grayscale antialiasing.
-/// It stays visually stable in screenshots and at the compact 11 px dashboard size,
-/// unlike sub-pixel ClearType colour fringing.
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn draw_card_copy(
-    dc: windows::Win32::Graphics::Gdi::HDC,
-    text: &str,
-    left: i32,
-    top: i32,
-    width: i32,
-    height: i32,
-    size: i32,
-    color: u32,
-    bold: bool,
-) {
-    let font = CreateFontW(
-        -size,
-        0,
-        0,
-        0,
-        if bold { FW_BOLD.0 as i32 } else { FW_NORMAL.0 as i32 },
-        0,
-        0,
-        0,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        ANTIALIASED_QUALITY,
-        DEFAULT_PITCH.0 as u32,
-        w!("Bahnschrift"),
-    );
-    let old = SelectObject(dc, font.into());
-    SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, rgb(color));
-    let mut wide: Vec<u16> = text.encode_utf16().collect();
-    let mut rect = windows::Win32::Foundation::RECT {
-        left,
-        top,
-        right: left + width,
-        bottom: top + height,
-    };
-    DrawTextW(dc, &mut wide, &mut rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     SelectObject(dc, old);
     let _ = DeleteObject(font.into());
 }
