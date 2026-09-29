@@ -39,4 +39,5 @@ Verification still required from the user on the live desktop preview because th
 - [x] Render the approved full-shark title-bar artwork with high-quality interpolation and close the title/icon gap.
 - [x] Make the inner battery progress ring's real blurred bloom visibly read as a contained green, illuminated 3D-style gradient.
 - [x] Remove the white specular line from the approved glow treatment, widen the green halo slightly, and tighten the title-bar title gap again.
+- [ ] Replace the pixelated-feeling card type with a cleaner professional family, keeping one coherent hierarchy for `DURACIÓN DE CARGA COMPLETA`, `Se aprende con tu descarga real.`, `AUTONOMÍA RESTANTE`, and `Se recalcula cada 30 segundos.`.
 - [ ] Pending user approval after the first two checks: replace the tray art with a battery-state shark face in green, yellow, or red (no battery on its head).
