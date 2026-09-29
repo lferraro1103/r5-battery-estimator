@@ -52,3 +52,4 @@ Verification still required from the user on the live desktop preview because th
 - [x] Correct the title to the history card's actual outer border and shift the evenly spaced top instruments five pixels right.
 - [x] Align the actual outer ring (rather than its paint box) and subtitle to the graph-card border while retaining 26 px between all three upper instruments.
 - [x] Raise the subtitle slightly, open both upper-instrument gaps to 30 px, and fine-tune the `R5 ULTRA` label placement.
+- [x] Align the refresh action to the chart edge, open the upper-instrument gaps to 34 px, and compact the top chrome by 4 px.

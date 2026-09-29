@@ -64,11 +64,11 @@ use windows::{
 const CLASS: windows::core::PCWSTR = w!("R5BatteryEstimatorNativeV2");
 const TRAY_MESSAGE: u32 = WM_APP + 17;
 const WIDTH: i32 = 1140;
-const HEIGHT: i32 = 920;
-const CHROME_HEIGHT: i32 = 48;
-const REFRESH: Rect = Rect::new(852, 842, 228, 60);
-const MINIMIZE: Rect = Rect::new(1028, 0, 56, 48);
-const CLOSE: Rect = Rect::new(1084, 0, 56, 48);
+const HEIGHT: i32 = 916;
+const CHROME_HEIGHT: i32 = 44;
+const REFRESH: Rect = Rect::new(874, 838, 228, 60);
+const MINIMIZE: Rect = Rect::new(1028, 0, 56, 44);
+const CLOSE: Rect = Rect::new(1084, 0, 56, 44);
 static BATTERY: OnceLock<Mutex<ProbeResult>> = OnceLock::new();
 static HISTORY: OnceLock<Mutex<Vec<Sample>>> = OnceLock::new();
 
@@ -311,14 +311,14 @@ unsafe extern "system" fn window_proc(
                 dc,
                 "R5 Battery Estimator",
                 38,
-                78,
+                74,
                 700,
                 70,
                 42,
                 0xF7F9FC,
                 true,
             );
-            draw_brand_icon(dc, 20, 10, 28);
+            draw_brand_icon(dc, 20, 8, 28);
             draw(
                 dc,
                 "R5 Battery Estimator",
@@ -338,28 +338,27 @@ unsafe extern "system" fn window_proc(
                 dc,
                 "Se aprende con tu descarga real.",
                 38,
-                139,
+                135,
                 700,
                 42,
                 18,
                 0xBED0E9,
                 false,
             );
-            draw_right(dc, "R5 ULTRA", 874, 88, 130, 45, 18, 0xFF5353, true);
-            draw_mascot(dc, 1010, 62, 84);
-            // The three top instruments form one group centred on the history card.
-            // 30 px between ring → duration and duration → autonomy.
-            card(dc, 345, 235, 350, 230);
-            card(dc, 725, 235, 340, 230);
+            draw_right(dc, "R5 ULTRA", 874, 84, 130, 45, 18, 0xFF5353, true);
+            draw_mascot(dc, 1010, 58, 84);
+            // The three top instruments use 34 px between each visible neighbour.
+            card(dc, 349, 235, 350, 230);
+            card(dc, 733, 235, 340, 230);
             chart(dc, &samples);
             button(dc);
             // The actual outer ring begins at x + 14, matching the graph border x = 38.
             ring(dc, 24, 201, 305, percent, status);
-            clock_glyph(dc, 380, 280);
+            clock_glyph(dc, 384, 280);
             draw(
                 dc,
                 "DURACIÓN DE CARGA COMPLETA",
-                395,
+                399,
                 265,
                 290,
                 30,
@@ -372,7 +371,7 @@ unsafe extern "system" fn window_proc(
                 &learned
                     .map(|hours| format!("{hours:.0} h"))
                     .unwrap_or_else(|| "Aprendiendo".to_owned()),
-                371,
+                375,
                 315,
                 290,
                 62,
@@ -383,7 +382,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 "Se aprende con tu descarga real.",
-                371,
+                375,
                 405,
                 290,
                 30,
@@ -391,11 +390,11 @@ unsafe extern "system" fn window_proc(
                 0xBED0E9,
                 false,
             );
-            bars_glyph(dc, 762, 291);
+            bars_glyph(dc, 770, 291);
             draw(
                 dc,
                 "AUTONOMÍA RESTANTE",
-                786,
+                794,
                 265,
                 270,
                 30,
@@ -408,7 +407,7 @@ unsafe extern "system" fn window_proc(
                 &percent
                     .map(|value| format!("{:.0} h", remaining_hours(learned, value)))
                     .unwrap_or_else(|| "—".to_owned()),
-                755,
+                763,
                 315,
                 270,
                 62,
@@ -419,7 +418,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 "Se recalcula cada 30 segundos.",
-                755,
+                763,
                 405,
                 280,
                 30,
@@ -431,7 +430,7 @@ unsafe extern "system" fn window_proc(
                 dc,
                 "La app nunca muestra una desconexión como 0%.",
                 55,
-                855,
+                851,
                 600,
                 30,
                 13,
