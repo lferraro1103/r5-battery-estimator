@@ -6,9 +6,9 @@ use windows::{
     core::w,
     Win32::{
         Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM},
-        Graphics::Gdi::{Arc, BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, Ellipse, EndPaint, FillRect, InvalidateRect, PAINTSTRUCT, RoundRect, SelectObject, SetBkMode, SetTextColor, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DT_LEFT, DT_SINGLELINE, DT_TOP, FW_BOLD, FW_NORMAL, OUT_DEFAULT_PRECIS, PS_SOLID, TRANSPARENT},
+        Graphics::Gdi::{Arc, BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, Ellipse, EndPaint, FillRect, InvalidateRect, LineTo, MoveToEx, PAINTSTRUCT, RoundRect, SelectObject, SetBkMode, SetTextColor, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DT_LEFT, DT_SINGLELINE, DT_TOP, FW_BOLD, FW_NORMAL, OUT_DEFAULT_PRECIS, PS_SOLID, TRANSPARENT},
         System::LibraryLoader::GetModuleHandleW,
-        UI::{Shell::{Shell_NotifyIconW, NOTIFYICONDATAW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE}, WindowsAndMessaging::{CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, LoadCursorW, LoadIconW, PostQuitMessage, RegisterClassW, SendMessageW, SetTimer, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HTCAPTION, IDC_ARROW, IDI_APPLICATION, MSG, SW_HIDE, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_TIMER, WNDCLASSW, WS_POPUP, WS_VISIBLE}},
+        UI::{Shell::{Shell_NotifyIconW, NOTIFYICONDATAW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE}, WindowsAndMessaging::{AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, LoadCursorW, LoadIconW, PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, ShowWindow, TrackPopupMenu, TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HTCAPTION, IDC_ARROW, IDI_APPLICATION, MF_SEPARATOR, MF_STRING, MSG, SW_HIDE, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_POPUP, WS_VISIBLE}},
     },
 };
 
@@ -43,8 +43,10 @@ fn main() -> windows::core::Result<()> {
 unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match message {
         TRAY_MESSAGE if lparam.0 as u32 == WM_LBUTTONUP => { let _ = ShowWindow(hwnd, SW_SHOW); LRESULT(0) }
+        TRAY_MESSAGE if lparam.0 as u32 == WM_RBUTTONUP => { show_tray_menu(hwnd); LRESULT(0) }
+        WM_COMMAND => match (wparam.0 & 0xffff) as usize { 1 => { let _ = ShowWindow(hwnd, SW_SHOW); LRESULT(0) }, 2 => { if let Some(state) = BATTERY.get() { *state.lock().expect("battery state poisoned") = probe_once(&R5HidTransport::new()); } let _ = InvalidateRect(Some(hwnd), None, false); LRESULT(0) }, 3 => { let _ = DestroyWindow(hwnd); LRESULT(0) }, _ => LRESULT(0) },
         WM_CLOSE => { let _ = ShowWindow(hwnd, SW_HIDE); LRESULT(0) }
-        WM_LBUTTONDOWN => { let x = (lparam.0 & 0xffff) as i32; let y = ((lparam.0 >> 16) & 0xffff) as i32; if y < 50 && x > 1070 { let _ = ShowWindow(hwnd, SW_HIDE); } else if y < 50 && x > 1010 { let _ = ShowWindow(hwnd, SW_HIDE); } else if y < 50 { let _ = SendMessageW(hwnd, WM_NCLBUTTONDOWN, Some(WPARAM(HTCAPTION as usize)), Some(LPARAM(0))); } LRESULT(0) }
+        WM_LBUTTONDOWN => { let x = (lparam.0 & 0xffff) as i32; let y = ((lparam.0 >> 16) & 0xffff) as i32; if y < 50 && x > 1070 { let _ = ShowWindow(hwnd, SW_HIDE); } else if y < 50 && x > 1010 { let _ = ShowWindow(hwnd, SW_HIDE); } else if y > 872 && x > 852 { if let Some(state) = BATTERY.get() { *state.lock().expect("battery state poisoned") = probe_once(&R5HidTransport::new()); } let _ = InvalidateRect(Some(hwnd), None, false); } else if y < 50 { let _ = SendMessageW(hwnd, WM_NCLBUTTONDOWN, Some(WPARAM(HTCAPTION as usize)), Some(LPARAM(0))); } LRESULT(0) }
         WM_TIMER => { let _ = InvalidateRect(Some(hwnd), None, false); LRESULT(0) }
         WM_PAINT => {
             let mut paint = PAINTSTRUCT::default();
@@ -59,7 +61,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             draw(dc, "R5 Battery Estimator", 64, 14, 320, 26, 15, 0xF5F5F5, false); draw(dc, "—", 1028, 12, 24, 26, 18, 0xF5F5F5, false); draw(dc, "×", 1083, 9, 28, 30, 22, 0xF5F5F5, false);
             draw(dc, "Se aprende con tu descarga real.", 62, 135, 700, 42, 18, 0xE9C0B0, false);
             draw(dc, "R5 ULTRA", 915, 85, 160, 45, 17, 0x5353FF, true);
-            card(dc, 390, 265, 350, 230); card(dc, 765, 265, 340, 230); card(dc, 38, 570, 1064, 280);
+            card(dc, 390, 265, 350, 230); card(dc, 765, 265, 340, 230); chart(dc, percent); button(dc);
             ring(dc, 58, 198, 305, percent, charging);
             draw(dc, "DURACIÓN DE CARGA COMPLETA", 420, 305, 290, 30, 11, 0xE9C0B0, false);
             draw(dc, "Aprendiendo", 420, 365, 290, 62, 31, 0xF5F5F5, true);
@@ -67,7 +69,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             draw(dc, "AUTONOMÍA RESTANTE", 795, 305, 270, 30, 11, 0xE9C0B0, false);
             draw(dc, &format!("{} h", percent.saturating_mul(2)), 795, 365, 270, 70, 48, 0xF5F5F5, true);
             draw(dc, "Se recalcula cada 30 segundos.", 795, 445, 280, 30, 11, 0xE9C0B0, false);
-            draw(dc, "HISTORIAL: HORA / PORCENTAJE", 85, 605, 420, 30, 15, 0xE9C0B0, true);
             draw(dc, "La app nunca muestra una desconexión como 0%.", 55, 885, 600, 30, 13, 0xE9C0B0, false);
             let _ = EndPaint(hwnd, &paint);
             LRESULT(0)
@@ -75,6 +76,18 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         WM_DESTROY => { remove_tray(hwnd); PostQuitMessage(0); LRESULT(0) }
         _ => DefWindowProcW(hwnd, message, wparam, lparam),
     }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn show_tray_menu(hwnd: HWND) {
+    let menu = match CreatePopupMenu() { Ok(menu) => menu, Err(_) => return };
+    let _ = AppendMenuW(menu, MF_STRING, 1, w!("Abrir panel"));
+    let _ = AppendMenuW(menu, MF_STRING, 2, w!("Actualizar ahora"));
+    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, w!(""));
+    let _ = AppendMenuW(menu, MF_STRING, 3, w!("Cerrar programa"));
+    let mut point = windows::Win32::Foundation::POINT::default();
+    if GetCursorPos(&mut point).is_ok() { let _ = SetForegroundWindow(hwnd); let _ = TrackPopupMenu(menu, Default::default(), point.x, point.y, None, hwnd, None); }
+    let _ = DestroyMenu(menu);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -86,7 +99,17 @@ unsafe fn draw(dc: windows::Win32::Graphics::Gdi::HDC, text: &str, left: i32, to
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn card(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, width: i32, height: i32) { let brush = CreateSolidBrush(COLORREF(0x231B10)); let old = SelectObject(dc, brush.into()); RoundRect(dc, x, y, x + width, y + height, 18, 18); SelectObject(dc, old); let _ = DeleteObject(brush.into()); }
+unsafe fn card(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, width: i32, height: i32) { let brush = CreateSolidBrush(COLORREF(0x231B10)); let old = SelectObject(dc, brush.into()); let _ = RoundRect(dc, x, y, x + width, y + height, 18, 18); SelectObject(dc, old); let _ = DeleteObject(brush.into()); }
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, percent: u8) {
+    card(dc, 38, 570, 1064, 280); draw(dc, "HISTORIAL: HORA / PORCENTAJE", 85, 605, 420, 30, 15, 0xE9C0B0, true); draw(dc, "100%", 72, 680, 60, 25, 11, 0xE9C0B0, false); draw(dc, "0%", 96, 810, 40, 25, 11, 0xE9C0B0, false); draw(dc, "24 h", 145, 840, 80, 25, 11, 0xE9C0B0, false); draw(dc, "ahora", 1024, 840, 70, 25, 11, 0xE9C0B0, false);
+    let grid = CreatePen(PS_SOLID, 1, COLORREF(0x564933)); let old = SelectObject(dc, grid.into()); for row in 0..4 { let y = 690 + row * 34; let _ = MoveToEx(dc, 145, y, None); let _ = LineTo(dc, 1068, y); } for col in 1..4 { let x = 145 + col * 231; let _ = MoveToEx(dc, x, 690, None); let _ = LineTo(dc, x, 824); } SelectObject(dc, old); let _ = DeleteObject(grid.into());
+    let green = CreatePen(PS_SOLID, 3, COLORREF(0x87E21A)); let old = SelectObject(dc, green.into()); let start_y = 824 - (percent as i32 * 134 / 100); let _ = MoveToEx(dc, 145, start_y + 12, None); let _ = LineTo(dc, 1068, start_y); SelectObject(dc, old); let _ = DeleteObject(green.into());
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn button(dc: windows::Win32::Graphics::Gdi::HDC) { let brush = CreateSolidBrush(COLORREF(0x3D37E8)); let old = SelectObject(dc, brush.into()); let _ = RoundRect(dc, 852, 872, 1080, 932, 12, 12); SelectObject(dc, old); let _ = DeleteObject(brush.into()); draw(dc, "Actualizar ahora", 886, 891, 170, 30, 14, 0xFFFFFF, false); }
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn ring(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, size: i32, percent: u8, charging: bool) {
@@ -96,6 +119,7 @@ unsafe fn ring(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, size: i32
     let value = format!("{}%", percent); draw(dc, &value, x + 70, y + 100, 180, 70, 48, 0xF5F5F5, true); draw(dc, if charging { "Cargando" } else { "No cargando" }, x + 100, y + 205, 140, 30, 13, 0xE9C0B0, false);
 }
 
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn add_tray(hwnd: HWND) -> windows::core::Result<()> {
     let mut data = NOTIFYICONDATAW { cbSize: size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, uID: 1, uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP, uCallbackMessage: TRAY_MESSAGE, hIcon: LoadIconW(None, IDI_APPLICATION)?, ..Default::default() };
     let tip: Vec<u16> = "R5 Battery Estimator V2".encode_utf16().collect();
@@ -103,6 +127,7 @@ unsafe fn add_tray(hwnd: HWND) -> windows::core::Result<()> {
     Shell_NotifyIconW(NIM_ADD, &data).ok()
 }
 
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn remove_tray(hwnd: HWND) {
     let data = NOTIFYICONDATAW { cbSize: size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, uID: 1, ..Default::default() };
     let _ = Shell_NotifyIconW(NIM_DELETE, &data);
