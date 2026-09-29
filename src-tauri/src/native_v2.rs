@@ -310,7 +310,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 "R5 Battery Estimator",
-                47,
+                51,
                 78,
                 700,
                 70,
@@ -337,7 +337,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 "Se aprende con tu descarga real.",
-                47,
+                51,
                 143,
                 700,
                 42,
@@ -348,16 +348,16 @@ unsafe extern "system" fn window_proc(
             draw_right(dc, "R5 ULTRA", 870, 84, 130, 45, 18, 0xFF5353, true);
             draw_mascot(dc, 1010, 62, 84);
             // The three top instruments form one group centred on the history card.
-            card(dc, 379, 235, 350, 230);
-            card(dc, 754, 235, 340, 230);
+            card(dc, 383, 235, 350, 230);
+            card(dc, 758, 235, 340, 230);
             chart(dc, &samples);
             button(dc);
-            ring(dc, 47, 201, 305, percent, status);
-            clock_glyph(dc, 414, 280);
+            ring(dc, 51, 201, 305, percent, status);
+            clock_glyph(dc, 418, 280);
             draw(
                 dc,
                 "DURACIÓN DE CARGA COMPLETA",
-                429,
+                433,
                 265,
                 290,
                 30,
@@ -370,7 +370,7 @@ unsafe extern "system" fn window_proc(
                 &learned
                     .map(|hours| format!("{hours:.0} h"))
                     .unwrap_or_else(|| "Aprendiendo".to_owned()),
-                405,
+                409,
                 315,
                 290,
                 62,
@@ -381,7 +381,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 "Se aprende con tu descarga real.",
-                405,
+                409,
                 405,
                 290,
                 30,
@@ -389,11 +389,11 @@ unsafe extern "system" fn window_proc(
                 0xBED0E9,
                 false,
             );
-            bars_glyph(dc, 791, 291);
+            bars_glyph(dc, 795, 291);
             draw(
                 dc,
                 "AUTONOMÍA RESTANTE",
-                815,
+                819,
                 265,
                 270,
                 30,
@@ -406,7 +406,7 @@ unsafe extern "system" fn window_proc(
                 &percent
                     .map(|value| format!("{:.0} h", remaining_hours(learned, value)))
                     .unwrap_or_else(|| "—".to_owned()),
-                784,
+                788,
                 315,
                 270,
                 62,
@@ -417,7 +417,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 "Se recalcula cada 30 segundos.",
-                784,
+                788,
                 405,
                 280,
                 30,

@@ -47,3 +47,4 @@ Verification still required from the user on the live desktop preview because th
 - [x] Compact the lower dashboard and window height, preserve the metric-card/ring centre line, and lift the two main values to balance them between their metadata lines.
 - [x] Centre the full top instrument group on the history card and normalize the chart card's header, plot, axis, and lower-label margins.
 - [x] Fine-tune the top title, ring, duration card, plot offset, and `R5 ULTRA`/mascot spacing.
+- [x] Apply the final four-pixel rightward optical adjustment to the top title and instrument group.
