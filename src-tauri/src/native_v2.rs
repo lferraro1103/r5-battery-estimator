@@ -145,6 +145,45 @@ fn learned_hours(samples: &[Sample]) -> Option<f64> {
     Some((100.0 / (dropped as f64 / (elapsed as f64 / 3600.0))).clamp(5.0, 1000.0))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{learned_hours, Sample};
+
+    #[test]
+    fn does_not_claim_learning_without_a_full_discharge() {
+        let samples = [Sample { at: 0, percent: 100, charging: false }, Sample { at: 3_600, percent: 80, charging: false }];
+        assert_eq!(learned_hours(&samples), None);
+    }
+
+    #[test]
+    fn learns_only_from_a_valid_full_discharge() {
+        let samples = [
+            Sample { at: 0, percent: 100, charging: false },
+            Sample { at: 300, percent: 85, charging: false },
+            Sample { at: 600, percent: 70, charging: false },
+            Sample { at: 900, percent: 55, charging: false },
+            Sample { at: 1_200, percent: 40, charging: false },
+            Sample { at: 1_500, percent: 25, charging: false },
+            Sample { at: 1_800, percent: 10, charging: false },
+            Sample { at: 2_100, percent: 5, charging: false },
+        ];
+        let hours = learned_hours(&samples).expect("valid cycle should learn");
+        assert_eq!(hours, 5.0, "floor prevents implausibly short full-charge claims");
+    }
+
+    #[test]
+    fn ignores_long_gaps_and_charging_segments() {
+        let samples = [
+            Sample { at: 0, percent: 100, charging: false },
+            Sample { at: 3_600, percent: 90, charging: false },
+            Sample { at: 7_500, percent: 89, charging: false },
+            Sample { at: 7_530, percent: 88, charging: true },
+            Sample { at: 7_560, percent: 5, charging: false },
+        ];
+        assert_eq!(learned_hours(&samples), None);
+    }
+}
+
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn ring(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, size: i32, percent: Option<u8>, status: &str) {
     let left = x + 30; let top = y + 30; let right = x + size - 30; let bottom = y + size - 30; let center_x = (left + right) / 2; let center_y = (top + bottom) / 2; let radius = (right - left) / 2;
