@@ -54,3 +54,4 @@ Verification still required from the user on the live desktop preview because th
 - [x] Raise the subtitle slightly, open both upper-instrument gaps to 30 px, and fine-tune the `R5 ULTRA` label placement.
 - [x] Align the refresh action to the chart edge, open the upper-instrument gaps to 34 px, and compact the top chrome by 4 px.
 - [x] Raise the title, subtitle, and every card with its internal content by 4 px while preserving the `R5 ULTRA`/mascot position.
+- [x] Raise the title/subtitle a further 3 px and every dashboard card plus its content a further 5 px, without moving the product mark.
