@@ -310,7 +310,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 "R5 Battery Estimator",
-                58,
+                54,
                 0,
                 320,
                 CHROME_HEIGHT,
@@ -1127,26 +1127,12 @@ unsafe fn ring(
                 sweep.min(359.95),
                 value < 100,
             );
-            draw_gp_arc(
-                graphics,
-                left,
-                top,
-                diameter,
-                0x9ad8ffe9,
-                2.2,
-                -90.0,
-                sweep.min(359.95),
-                value < 100,
-            );
             if value == 100 {
                 draw_gp_arc(
                     graphics, left, top, diameter, 0xff1abd74, 22.0, -90.0, 359.95, false,
                 );
                 draw_gp_arc(
                     graphics, left, top, diameter, 0xff45f4a1, 15.0, -90.0, 359.95, false,
-                );
-                draw_gp_arc(
-                    graphics, left, top, diameter, 0x9ad8ffe9, 2.2, -90.0, 359.95, false,
                 );
             }
         }
@@ -1179,12 +1165,12 @@ unsafe fn draw_blurred_arc(
         let _ = GdipSetSmoothingMode(mask_graphics, SmoothingModeAntiAlias);
         // Render a broad, opaque source then blur it through GDI+.  The result is
         // a true soft-light halo; it stays behind the two physical rings.
-        draw_gp_arc(mask_graphics, left, top, diameter, 0xF03BEE99, 27.0, -90.0, sweep.min(359.95), true);
+        draw_gp_arc(mask_graphics, left, top, diameter, 0xF43BEE99, 30.0, -90.0, sweep.min(359.95), true);
         let _ = GdipDeleteGraphics(mask_graphics);
     }
     let mut effect = std::ptr::null_mut();
     if GdipCreateEffect(BlurEffectGuid, &mut effect).0 == 0 {
-        let params = BlurParams { radius: 19.0, expandEdge: true.into() };
+        let params = BlurParams { radius: 22.0, expandEdge: true.into() };
         let _ = GdipSetEffectParameters(effect, (&params as *const BlurParams).cast(), size_of::<BlurParams>() as u32);
         let mut roi = windows::Win32::Foundation::RECT { left: 0, top: 0, right: size, bottom: size };
         let _ = GdipBitmapApplyEffect(bitmap, effect, &mut roi, false, std::ptr::null_mut(), std::ptr::null_mut());
