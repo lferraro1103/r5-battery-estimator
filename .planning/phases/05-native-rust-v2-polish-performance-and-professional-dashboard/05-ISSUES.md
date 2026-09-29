@@ -33,3 +33,9 @@ Verification still required from the user on the live desktop preview because th
 | Clock glyph | Fixed in this pass | High-quality GDI+ ellipse and pixel-offset mode. |
 | Inner-ring bloom | Fixed in this pass | Stronger real blurred mask; two-ring geometry preserved. |
 | Percentage/status rhythm | Fixed in this pass | Percentage moved down 4 px; status moved up 5 px. |
+
+## Next user-requested polish pass
+
+- [x] Render the approved full-shark title-bar artwork with high-quality interpolation and close the title/icon gap.
+- [x] Make the inner battery progress ring's real blurred bloom visibly read as a contained green, illuminated 3D-style gradient.
+- [ ] Pending user approval after the first two checks: replace the tray art with a battery-state shark face in green, yellow, or red (no battery on its head).
