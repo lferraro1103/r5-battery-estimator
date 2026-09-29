@@ -310,7 +310,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 "R5 Battery Estimator",
-                60,
+                47,
                 78,
                 700,
                 70,
@@ -337,7 +337,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 "Se aprende con tu descarga real.",
-                62,
+                47,
                 143,
                 700,
                 42,
@@ -345,19 +345,19 @@ unsafe extern "system" fn window_proc(
                 0xBED0E9,
                 false,
             );
-            draw_right(dc, "R5 ULTRA", 860, 84, 130, 45, 18, 0xFF5353, true);
+            draw_right(dc, "R5 ULTRA", 870, 84, 130, 45, 18, 0xFF5353, true);
             draw_mascot(dc, 1010, 62, 84);
             // The three top instruments form one group centred on the history card.
             card(dc, 379, 235, 350, 230);
             card(dc, 754, 235, 340, 230);
             chart(dc, &samples);
             button(dc);
-            ring(dc, 47, 198, 305, percent, status);
-            clock_glyph(dc, 418, 280);
+            ring(dc, 47, 201, 305, percent, status);
+            clock_glyph(dc, 414, 280);
             draw(
                 dc,
                 "DURACIÓN DE CARGA COMPLETA",
-                433,
+                429,
                 265,
                 290,
                 30,
@@ -370,7 +370,7 @@ unsafe extern "system" fn window_proc(
                 &learned
                     .map(|hours| format!("{hours:.0} h"))
                     .unwrap_or_else(|| "Aprendiendo".to_owned()),
-                409,
+                405,
                 315,
                 290,
                 62,
@@ -381,7 +381,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 "Se aprende con tu descarga real.",
-                409,
+                405,
                 405,
                 290,
                 30,
@@ -668,17 +668,17 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
     );
     draw_right(dc, "100%", 70, 618, 60, 25, 11, 0xBED0E9, false);
     draw_right(dc, "0%", 90, 752, 40, 25, 11, 0xBED0E9, false);
-    draw(dc, "24 h", 145, 780, 80, 25, 11, 0xBED0E9, false);
-    draw_right(dc, "ahora", 1005, 780, 63, 25, 11, 0xBED0E9, false);
+    draw(dc, "24 h", 133, 780, 80, 25, 11, 0xBED0E9, false);
+    draw_right(dc, "ahora", 993, 780, 63, 25, 11, 0xBED0E9, false);
     let grid = CreatePen(PS_SOLID, 1, rgb(0x334956));
     let old = SelectObject(dc, grid.into());
     for row in 0..4 {
         let y = 630 + row * 34;
-        let _ = MoveToEx(dc, 145, y, None);
-        let _ = LineTo(dc, 1068, y);
+        let _ = MoveToEx(dc, 133, y, None);
+        let _ = LineTo(dc, 1056, y);
     }
     for col in 1..4 {
-        let x = 145 + col * 231;
+        let x = 133 + col * 231;
         let _ = MoveToEx(dc, x, 630, None);
         let _ = LineTo(dc, x, 764);
     }
@@ -695,7 +695,7 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
         .collect();
     if visible.len() >= 2 {
         let points: Vec<Point> = visible.iter().map(|sample| Point {
-            X: 145 + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0) as i32,
+            X: 133 + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0) as i32,
             Y: 764 - sample.percent as i32 * 134 / 100,
         }).collect();
         let mut graphics = std::ptr::null_mut();
@@ -707,7 +707,7 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
             area.push(Point { X: points.last().expect("points not empty").X, Y: 764 });
             area.push(Point { X: points[0].X, Y: 764 });
             let mut brush = std::ptr::null_mut();
-            let gradient_bounds = windows::Win32::Graphics::GdiPlus::Rect { X: 145, Y: 630, Width: 923, Height: 134 };
+            let gradient_bounds = windows::Win32::Graphics::GdiPlus::Rect { X: 133, Y: 630, Width: 923, Height: 134 };
             if GdipCreateLineBrushFromRectI(&gradient_bounds, 0x4A2FE189, 0x002FE189, LinearGradientModeVertical, WrapModeTileFlipX, &mut brush).0 == 0 {
                 let _ = GdipFillPolygonI(graphics, brush.cast(), area.as_ptr(), area.len() as i32, FillModeWinding);
                 let _ = GdipDeleteBrush(brush.cast());
@@ -716,7 +716,7 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
             let _ = GdipDeleteGraphics(graphics);
         }
     } else if let Some(sample) = visible.first() {
-        let x = 145
+        let x = 133
             + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0) as i32;
         let y = 764 - sample.percent as i32 * 134 / 100;
         let brush = CreateSolidBrush(rgb(0x2FE189));
