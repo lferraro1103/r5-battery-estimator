@@ -1,56 +1,94 @@
 //! V2 native Windows shell: no .NET, Chromium, WebView, or local HTTP server.
 
 use chrono::DateTime;
-use r5_battery_estimator::{battery::transport::R5HidTransport, probe_once, ProbeResult};
+use r5_battery_estimator::{ProbeResult, battery::transport::R5HidTransport, probe_once};
 use serde::{Deserialize, Serialize};
 use std::{
-    f64::consts::PI,
+    cell::RefCell,
     fs,
-    mem::{size_of, MaybeUninit},
+    mem::{MaybeUninit, size_of},
     path::PathBuf,
     sync::{Mutex, OnceLock},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use windows::{
-    core::{w, PCWSTR},
     Win32::{
-        Foundation::{GetLastError, COLORREF, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM},
+        Foundation::{COLORREF, ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, WPARAM},
         Graphics::Gdi::{
-            Arc, BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW,
-            Ellipse, EndPaint, FillRect, GetStockObject, InvalidateRect, LineTo, MoveToEx,
-            RoundRect, SelectObject, SetBkMode, SetTextColor, CLEARTYPE_QUALITY,
-                CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER, DT_LEFT,
-            DT_SINGLELINE, DT_TOP, FW_BOLD, FW_NORMAL, HOLLOW_BRUSH, OUT_DEFAULT_PRECIS,
-            PAINTSTRUCT, PS_SOLID, TRANSPARENT,
+            BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreatePen,
+            CreateRoundRectRgn, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
+            DT_LEFT, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, Ellipse, EndPaint,
+            FW_BOLD, FW_NORMAL, FillRect, GetStockObject, HOLLOW_BRUSH, InvalidateRect, LineTo,
+            MoveToEx, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, RoundRect, SelectObject,
+            SetBkMode, SetTextColor, SetWindowRgn, TRANSPARENT,
+        },
+        Graphics::GdiPlus::{
+            GdipCreateBitmapFromFile, GdipCreateFromHDC, GdipCreateHICONFromBitmap, GdipCreatePen1,
+            GdipDeleteGraphics, GdipDeletePen, GdipDisposeImage, GdipDrawArcI, GdipDrawImageRectI,
+            GdipSetPenEndCap, GdipSetPenStartCap, GdipSetSmoothingMode, GdiplusStartup,
+            GdiplusStartupInput, LineCapRound, SmoothingModeAntiAlias, UnitPixel,
         },
         System::LibraryLoader::GetModuleHandleW,
         System::Threading::CreateMutexW,
         UI::{
             Input::KeyboardAndMouse::ReleaseCapture,
             Shell::{
-                Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
-                NOTIFYICONDATAW,
+                NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+                NOTIFYICONDATAW, Shell_NotifyIconW,
             },
             WindowsAndMessaging::{
-                AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon,
-                DestroyMenu, DestroyWindow, DispatchMessageW, DrawIconEx, GetCursorPos,
-                GetMessageW, LoadCursorW, LoadIconW, LoadImageW, PostQuitMessage, RegisterClassW,
-                SendMessageW, SetForegroundWindow, SetTimer, ShowWindow, TrackPopupMenu,
-                TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, DI_NORMAL, HICON,
-                HTCAPTION, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON, LR_LOADFROMFILE, MF_SEPARATOR,
-                MF_STRING, MSG, SW_HIDE, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
-                WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP,
-                WM_TIMER, WNDCLASSW, WS_POPUP, WS_VISIBLE,
+                AppendMenuW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu,
+                CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW,
+                GetCursorPos, GetMessageW, HICON, HTCAPTION, IDC_ARROW, IDI_APPLICATION,
+                LoadCursorW, LoadIconW, MF_SEPARATOR, MF_STRING, MSG, PostQuitMessage,
+                RegisterClassW, SW_HIDE, SW_SHOW, SendMessageW, SetForegroundWindow, SetTimer,
+                ShowWindow, TrackPopupMenu, TranslateMessage, WINDOW_EX_STYLE, WM_APP, WM_CLOSE,
+                WM_COMMAND, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT,
+                WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_POPUP, WS_VISIBLE,
             },
         },
     },
+    core::{PCWSTR, w},
 };
 
 const CLASS: windows::core::PCWSTR = w!("R5BatteryEstimatorNativeV2");
 const TRAY_MESSAGE: u32 = WM_APP + 17;
+const WIDTH: i32 = 1140;
+const HEIGHT: i32 = 950;
+const CHROME_HEIGHT: i32 = 48;
+const REFRESH: Rect = Rect::new(852, 872, 228, 60);
+const MINIMIZE: Rect = Rect::new(1028, 0, 56, 48);
+const CLOSE: Rect = Rect::new(1084, 0, 56, 48);
 static BATTERY: OnceLock<Mutex<ProbeResult>> = OnceLock::new();
 static HISTORY: OnceLock<Mutex<Vec<Sample>>> = OnceLock::new();
+
+struct BrandImages {
+    title: *mut windows::Win32::Graphics::GdiPlus::GpImage,
+    mascot: *mut windows::Win32::Graphics::GdiPlus::GpImage,
+}
+thread_local! { static BRAND_IMAGES: RefCell<Option<BrandImages>> = const { RefCell::new(None) }; }
+
+#[derive(Clone, Copy)]
+struct Rect {
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+}
+impl Rect {
+    const fn new(x: i32, y: i32, w: i32, h: i32) -> Self {
+        Self { x, y, w, h }
+    }
+    const fn contains(self, x: i32, y: i32) -> bool {
+        x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
+    }
+}
+
+/// Win32 COLORREF is BGR in memory. Accept normal CSS-style RRGGBB at every call site.
+const fn rgb(hex: u32) -> COLORREF {
+    COLORREF(((hex & 0x0000ff) << 16) | (hex & 0x00ff00) | ((hex & 0xff0000) >> 16))
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Sample {
@@ -71,6 +109,13 @@ struct LegacySample {
 
 fn main() -> windows::core::Result<()> {
     unsafe {
+        // GDI+ is used only by the static anti-aliased ring. It never runs in the HID worker.
+        let mut gdiplus_token = 0usize;
+        let startup = GdiplusStartupInput {
+            GdiplusVersion: 1,
+            ..Default::default()
+        };
+        let _ = GdiplusStartup(&mut gdiplus_token, &startup, std::ptr::null_mut());
         let _instance_guard = CreateMutexW(None, false, w!("Local\\R5BatteryEstimatorNativeV2"))?;
         if GetLastError() == ERROR_ALREADY_EXISTS {
             return Ok(());
@@ -80,11 +125,13 @@ fn main() -> windows::core::Result<()> {
         HISTORY.get_or_init(|| Mutex::new(load_history()));
         record_sample(&initial);
         let state = state as &'static Mutex<ProbeResult>;
-        thread::spawn(move || loop {
-            thread::sleep(Duration::from_secs(30));
-            let result = probe_once(&R5HidTransport::new());
-            *state.lock().expect("battery state poisoned") = result.clone();
-            record_sample(&result);
+        thread::spawn(move || {
+            loop {
+                thread::sleep(Duration::from_secs(30));
+                let result = probe_once(&R5HidTransport::new());
+                *state.lock().expect("battery state poisoned") = result.clone();
+                record_sample(&result);
+            }
         });
         let instance = GetModuleHandleW(None)?;
         let cursor = LoadCursorW(None, IDC_ARROW)?;
@@ -101,18 +148,23 @@ fn main() -> windows::core::Result<()> {
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS,
-            w!("R5 Battery Estimator V2"),
+            w!("R5 Battery Estimator"),
             WS_POPUP | WS_VISIBLE,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            1140,
-            950,
+            WIDTH,
+            HEIGHT,
             None,
             None,
             Some(instance.into()),
             None,
         )?;
+        // A deterministic Win10/11 fallback for the custom borderless shell.
+        // Windows takes ownership of this region after SetWindowRgn succeeds.
+        let region = CreateRoundRectRgn(0, 0, WIDTH, HEIGHT, 24, 24);
+        let _ = SetWindowRgn(hwnd, Some(region), true);
         add_tray(hwnd)?;
+        update_tray(hwnd);
         let _ = SetTimer(Some(hwnd), 1, 30_000, None);
         let _ = ShowWindow(hwnd, SW_SHOW);
         let mut message = MaybeUninit::<MSG>::zeroed();
@@ -152,6 +204,7 @@ unsafe extern "system" fn window_proc(
                     *state.lock().expect("battery state poisoned") = result.clone();
                     record_sample(&result);
                 }
+                update_tray(hwnd);
                 let _ = InvalidateRect(Some(hwnd), None, false);
                 LRESULT(0)
             }
@@ -163,23 +216,27 @@ unsafe extern "system" fn window_proc(
         },
         WM_CLOSE => {
             let _ = ShowWindow(hwnd, SW_HIDE);
+            release_brand_images();
             LRESULT(0)
         }
         WM_LBUTTONDOWN => {
             let x = (lparam.0 & 0xffff) as i32;
             let y = ((lparam.0 >> 16) & 0xffff) as i32;
-            if y < 50 && x > 1070 {
+            if CLOSE.contains(x, y) {
                 let _ = ShowWindow(hwnd, SW_HIDE);
-            } else if y < 50 && x > 1010 {
+                release_brand_images();
+            } else if MINIMIZE.contains(x, y) {
                 let _ = ShowWindow(hwnd, SW_HIDE);
-            } else if y > 872 && x > 852 {
+                release_brand_images();
+            } else if REFRESH.contains(x, y) {
                 if let Some(state) = BATTERY.get() {
                     let result = probe_once(&R5HidTransport::new());
                     *state.lock().expect("battery state poisoned") = result.clone();
                     record_sample(&result);
                 }
+                update_tray(hwnd);
                 let _ = InvalidateRect(Some(hwnd), None, false);
-            } else if y < 50 {
+            } else if y < CHROME_HEIGHT {
                 let _ = ReleaseCapture();
                 let _ = SendMessageW(
                     hwnd,
@@ -191,23 +248,24 @@ unsafe extern "system" fn window_proc(
             LRESULT(0)
         }
         WM_TIMER => {
+            update_tray(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
             LRESULT(0)
         }
         WM_PAINT => {
             let mut paint = PAINTSTRUCT::default();
             let dc = BeginPaint(hwnd, &mut paint);
-            let background = CreateSolidBrush(COLORREF(0x17110A));
+            let background = CreateSolidBrush(rgb(0x0A1117));
             FillRect(dc, &paint.rcPaint, background);
             let _ = DeleteObject(background.into());
-            let header = CreateSolidBrush(COLORREF(0x1D160D));
+            let header = CreateSolidBrush(rgb(0x0D161D));
             FillRect(
                 dc,
                 &windows::Win32::Foundation::RECT {
                     left: 0,
                     top: 0,
-                    right: 1140,
-                    bottom: 50,
+                    right: WIDTH,
+                    bottom: CHROME_HEIGHT,
                 },
                 header,
             );
@@ -235,40 +293,42 @@ unsafe extern "system" fn window_proc(
                 dc,
                 "R5 Battery Estimator",
                 60,
-                70,
+                78,
                 700,
                 70,
                 42,
-                0xF5F5F5,
+                0xF7F9FC,
                 true,
             );
-            draw_brand_icon(dc, 16, 10, 28);
+            draw_brand_icon(dc, 20, 10, 28);
             draw(
                 dc,
                 "R5 Battery Estimator",
-                54,
-                14,
+                66,
+                0,
                 320,
-                26,
+                CHROME_HEIGHT,
                 15,
-                0xF5F5F5,
+                0xF7F9FC,
                 false,
             );
-            draw(dc, "—", 1028, 12, 24, 26, 18, 0xF5F5F5, false);
-            draw(dc, "×", 1083, 9, 28, 30, 22, 0xF5F5F5, false);
+            draw_center(
+                dc, "—", MINIMIZE.x, 0, MINIMIZE.w, MINIMIZE.h, 18, 0xF7F9FC, false,
+            );
+            draw_center(dc, "×", CLOSE.x, 0, CLOSE.w, CLOSE.h, 22, 0xF7F9FC, false);
             draw(
                 dc,
                 "Se aprende con tu descarga real.",
                 62,
-                135,
+                143,
                 700,
                 42,
                 18,
-                0xE9C0B0,
+                0xBED0E9,
                 false,
             );
-            draw(dc, "R5 ULTRA", 915, 85, 160, 45, 17, 0x5353FF, true);
-            draw_brand_icon(dc, 1010, 68, 82);
+            draw_right(dc, "R5 ULTRA", 860, 84, 130, 45, 18, 0xFF5353, true);
+            draw_mascot(dc, 1010, 62, 84);
             card(dc, 390, 265, 350, 230);
             card(dc, 765, 265, 340, 230);
             chart(dc, &samples);
@@ -283,7 +343,7 @@ unsafe extern "system" fn window_proc(
                 290,
                 30,
                 11,
-                0xE9C0B0,
+                0xBED0E9,
                 false,
             );
             draw(
@@ -307,7 +367,7 @@ unsafe extern "system" fn window_proc(
                 290,
                 30,
                 11,
-                0xE9C0B0,
+                0xBED0E9,
                 false,
             );
             bars_glyph(dc, 802, 320);
@@ -319,15 +379,14 @@ unsafe extern "system" fn window_proc(
                 270,
                 30,
                 11,
-                0xE9C0B0,
+                0xBED0E9,
                 false,
             );
             draw(
                 dc,
                 &percent
-                    .map(|value| {
-                        format!("{:.0} h", learned.unwrap_or(200.0) * value as f64 / 100.0)
-                    })
+                    .zip(learned)
+                    .map(|(value, hours)| format!("{:.0} h", hours * value as f64 / 100.0))
                     .unwrap_or_else(|| "—".to_owned()),
                 795,
                 365,
@@ -345,7 +404,7 @@ unsafe extern "system" fn window_proc(
                 280,
                 30,
                 11,
-                0xE9C0B0,
+                0xBED0E9,
                 false,
             );
             draw(
@@ -356,13 +415,23 @@ unsafe extern "system" fn window_proc(
                 600,
                 30,
                 13,
-                0xE9C0B0,
+                0xBED0E9,
                 false,
             );
+            // Hairline inside the rounded region keeps the shell intentionally rounded instead of full-bleed square.
+            let hollow = GetStockObject(HOLLOW_BRUSH);
+            let old_brush = SelectObject(dc, hollow);
+            let root_border = CreatePen(PS_SOLID, 1, rgb(0x233440));
+            let old_pen = SelectObject(dc, root_border.into());
+            let _ = RoundRect(dc, 0, 0, WIDTH - 1, HEIGHT - 1, 24, 24);
+            SelectObject(dc, old_pen);
+            SelectObject(dc, old_brush);
+            let _ = DeleteObject(root_border.into());
             let _ = EndPaint(hwnd, &paint);
             LRESULT(0)
         }
         WM_DESTROY => {
+            release_brand_images();
             remove_tray(hwnd);
             PostQuitMessage(0);
             LRESULT(0)
@@ -423,7 +492,7 @@ unsafe fn draw(
     );
     let old = SelectObject(dc, font.into());
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, COLORREF(color));
+    SetTextColor(dc, rgb(color));
     let mut wide: Vec<u16> = text.encode_utf16().collect();
     let mut rect = windows::Win32::Foundation::RECT {
         left,
@@ -431,7 +500,12 @@ unsafe fn draw(
         right: left + width,
         bottom: top + height,
     };
-    DrawTextW(dc, &mut wide, &mut rect, DT_LEFT | DT_TOP | DT_SINGLELINE);
+    DrawTextW(
+        dc,
+        &mut wide,
+        &mut rect,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+    );
     SelectObject(dc, old);
     let _ = DeleteObject(font.into());
 }
@@ -470,7 +544,7 @@ unsafe fn draw_center(
     );
     let old = SelectObject(dc, font.into());
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, COLORREF(color));
+    SetTextColor(dc, rgb(color));
     let mut wide: Vec<u16> = text.encode_utf16().collect();
     let mut rect = windows::Win32::Foundation::RECT {
         left,
@@ -478,23 +552,88 @@ unsafe fn draw_center(
         right: left + width,
         bottom: top + height,
     };
-    DrawTextW(dc, &mut wide, &mut rect, DT_CENTER | DT_TOP | DT_SINGLELINE);
+    DrawTextW(
+        dc,
+        &mut wide,
+        &mut rect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE,
+    );
+    SelectObject(dc, old);
+    let _ = DeleteObject(font.into());
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn draw_right(
+    dc: windows::Win32::Graphics::Gdi::HDC,
+    text: &str,
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+    size: i32,
+    color: u32,
+    bold: bool,
+) {
+    let font = CreateFontW(
+        -size,
+        0,
+        0,
+        0,
+        if bold {
+            FW_BOLD.0 as i32
+        } else {
+            FW_NORMAL.0 as i32
+        },
+        0,
+        0,
+        0,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        DEFAULT_PITCH.0 as u32,
+        w!("Segoe UI"),
+    );
+    let old = SelectObject(dc, font.into());
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, rgb(color));
+    let mut wide: Vec<u16> = text.encode_utf16().collect();
+    let mut rect = windows::Win32::Foundation::RECT {
+        left,
+        top,
+        right: left + width,
+        bottom: top + height,
+    };
+    DrawTextW(
+        dc,
+        &mut wide,
+        &mut rect,
+        windows::Win32::Graphics::Gdi::DT_RIGHT | DT_VCENTER | DT_SINGLELINE,
+    );
     SelectObject(dc, old);
     let _ = DeleteObject(font.into());
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn card(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, width: i32, height: i32) {
-    let shadow = CreateSolidBrush(COLORREF(0x080604));
+    let shadow = CreateSolidBrush(rgb(0x05090D));
     let old_shadow = SelectObject(dc, shadow.into());
     let _ = RoundRect(dc, x + 4, y + 5, x + width + 4, y + height + 5, 18, 18);
     SelectObject(dc, old_shadow);
     let _ = DeleteObject(shadow.into());
-    let brush = CreateSolidBrush(COLORREF(0x231B10));
+    let brush = CreateSolidBrush(rgb(0x101B23));
     let old = SelectObject(dc, brush.into());
     let _ = RoundRect(dc, x, y, x + width, y + height, 18, 18);
     SelectObject(dc, old);
     let _ = DeleteObject(brush.into());
+    let hollow = GetStockObject(HOLLOW_BRUSH);
+    let old_brush = SelectObject(dc, hollow);
+    let border = CreatePen(PS_SOLID, 1, rgb(0x233440));
+    let old_pen = SelectObject(dc, border.into());
+    let _ = RoundRect(dc, x, y, x + width, y + height, 18, 18);
+    SelectObject(dc, old_pen);
+    SelectObject(dc, old_brush);
+    let _ = DeleteObject(border.into());
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -509,14 +648,14 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
         420,
         30,
         15,
-        0xE9C0B0,
+        0xBED0E9,
         true,
     );
-    draw(dc, "100%", 72, 655, 60, 25, 11, 0xE9C0B0, false);
-    draw(dc, "0%", 96, 785, 40, 25, 11, 0xE9C0B0, false);
-    draw(dc, "24 h", 145, 815, 80, 25, 11, 0xE9C0B0, false);
-    draw(dc, "ahora", 1022, 815, 46, 25, 11, 0xE9C0B0, false);
-    let grid = CreatePen(PS_SOLID, 1, COLORREF(0x564933));
+    draw_right(dc, "100%", 70, 653, 60, 25, 11, 0xBED0E9, false);
+    draw_right(dc, "0%", 90, 787, 40, 25, 11, 0xBED0E9, false);
+    draw(dc, "24 h", 145, 815, 80, 25, 11, 0xBED0E9, false);
+    draw_right(dc, "ahora", 1005, 815, 63, 25, 11, 0xBED0E9, false);
+    let grid = CreatePen(PS_SOLID, 1, rgb(0x334956));
     let old = SelectObject(dc, grid.into());
     for row in 0..4 {
         let y = 665 + row * 34;
@@ -530,19 +669,22 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
     }
     SelectObject(dc, old);
     let _ = DeleteObject(grid.into());
-    if samples.len() >= 2 {
-        let green = CreatePen(PS_SOLID, 3, COLORREF(0x87E21A));
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let start = now.saturating_sub(24 * 60 * 60);
+    let visible: Vec<_> = samples
+        .iter()
+        .filter(|sample| sample.at >= start && sample.at <= now)
+        .collect();
+    if visible.len() >= 2 {
+        let green = CreatePen(PS_SOLID, 3, rgb(0x2FE189));
         let old = SelectObject(dc, green.into());
-        let first = samples.first().expect("at least two samples");
-        let last_at = samples
-            .last()
-            .expect("at least two samples")
-            .at
-            .max(first.at + 1);
-        for (index, sample) in samples.iter().enumerate() {
+        for (index, sample) in visible.iter().enumerate() {
             let x = 145
-                + (((sample.at.saturating_sub(first.at)) as f64 / (last_at - first.at) as f64)
-                    * 923.0) as i32;
+                + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0)
+                    as i32;
             let y = 799 - sample.percent as i32 * 134 / 100;
             if index == 0 {
                 let _ = MoveToEx(dc, x, y, None);
@@ -552,24 +694,53 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
         }
         SelectObject(dc, old);
         let _ = DeleteObject(green.into());
+    } else if let Some(sample) = visible.first() {
+        let x = 145
+            + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0) as i32;
+        let y = 799 - sample.percent as i32 * 134 / 100;
+        let brush = CreateSolidBrush(rgb(0x2FE189));
+        let old = SelectObject(dc, brush.into());
+        let _ = Ellipse(dc, x - 3, y - 3, x + 4, y + 4);
+        SelectObject(dc, old);
+        let _ = DeleteObject(brush.into());
+    } else {
+        draw_center(
+            dc,
+            "Aún no hay historial",
+            330,
+            705,
+            560,
+            24,
+            13,
+            0xBED0E9,
+            false,
+        );
     }
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn button(dc: windows::Win32::Graphics::Gdi::HDC) {
-    let brush = CreateSolidBrush(COLORREF(0x3D37E8));
+    let brush = CreateSolidBrush(rgb(0xE8373D));
     let old = SelectObject(dc, brush.into());
-    let _ = RoundRect(dc, 852, 872, 1080, 932, 12, 12);
+    let _ = RoundRect(
+        dc,
+        REFRESH.x,
+        REFRESH.y,
+        REFRESH.x + REFRESH.w,
+        REFRESH.y + REFRESH.h,
+        24,
+        24,
+    );
     SelectObject(dc, old);
     let _ = DeleteObject(brush.into());
-    draw(
+    draw_center(
         dc,
         "Actualizar ahora",
-        886,
-        891,
-        170,
-        30,
-        14,
+        REFRESH.x,
+        REFRESH.y,
+        REFRESH.w,
+        REFRESH.h,
+        15,
         0xFFFFFF,
         false,
     );
@@ -577,38 +748,113 @@ unsafe fn button(dc: windows::Win32::Graphics::Gdi::HDC) {
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn draw_brand_icon(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, size: i32) {
-    let icon = native_icon();
-    let _ = DrawIconEx(dc, x, y, icon, size, size, 0, None, DI_NORMAL);
-    let _ = DestroyIcon(icon);
+    draw_brand_image(dc, false, x, y, size, size);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn native_icon() -> HICON {
-    let fallback =
-        || LoadIconW(None, IDI_APPLICATION).expect("Windows application icon must exist");
-    let Ok(exe) = std::env::current_exe() else {
-        return fallback();
+unsafe fn draw_mascot(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, size: i32) {
+    draw_brand_image(dc, true, x, y, size, size);
+}
+
+fn asset_path(name: &str) -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(PathBuf::from));
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("R5BatteryEstimator.Native")
+        .join("Assets")
+        .join(name);
+    [
+        exe_dir.as_ref().map(|dir| dir.join("Assets").join(name)),
+        exe_dir.as_ref().map(|dir| dir.join(name)),
+        Some(source),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|path| path.is_file())
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn load_brand_image(name: &str) -> *mut windows::Win32::Graphics::GdiPlus::GpImage {
+    let Some(path) = asset_path(name) else {
+        return std::ptr::null_mut();
     };
-    let path = exe
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("r5-battery-estimator.ico");
     let wide: Vec<u16> = path
         .as_os_str()
         .to_string_lossy()
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
-    LoadImageW(
-        None,
-        PCWSTR(wide.as_ptr()),
-        IMAGE_ICON,
-        64,
-        64,
-        LR_LOADFROMFILE,
-    )
-    .map(|handle| HICON(handle.0))
-    .unwrap_or_else(|_| fallback())
+    let mut bitmap = std::ptr::null_mut();
+    if GdipCreateBitmapFromFile(PCWSTR(wide.as_ptr()), &mut bitmap).0 == 0 {
+        bitmap.cast()
+    } else {
+        std::ptr::null_mut()
+    }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn draw_brand_image(
+    dc: windows::Win32::Graphics::Gdi::HDC,
+    mascot: bool,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) {
+    BRAND_IMAGES.with(|images| {
+        let mut images = images.borrow_mut();
+        if images.is_none() {
+            *images = Some(BrandImages {
+                title: load_brand_image("shark-head-battery.png"),
+                mascot: load_brand_image("shark-battery.png"),
+            });
+        }
+        let image = images
+            .as_ref()
+            .map(|assets| if mascot { assets.mascot } else { assets.title })
+            .unwrap_or(std::ptr::null_mut());
+        if image.is_null() {
+            return;
+        }
+        let mut graphics = std::ptr::null_mut();
+        if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
+            let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
+            let _ = GdipDrawImageRectI(graphics, image, x, y, width, height);
+            let _ = GdipDeleteGraphics(graphics);
+        }
+    });
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn release_brand_images() {
+    BRAND_IMAGES.with(|images| {
+        if let Some(images) = images.borrow_mut().take() {
+            if !images.title.is_null() {
+                let _ = GdipDisposeImage(images.title);
+            }
+            if !images.mascot.is_null() {
+                let _ = GdipDisposeImage(images.mascot);
+            }
+        }
+    });
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn native_icon() -> HICON {
+    let fallback =
+        || LoadIconW(None, IDI_APPLICATION).expect("Windows application icon must exist");
+    let image = load_brand_image("shark-head-battery.png");
+    if !image.is_null() {
+        let mut icon = HICON::default();
+        let status = GdipCreateHICONFromBitmap(image.cast(), &mut icon);
+        let _ = GdipDisposeImage(image);
+        if status.0 == 0 {
+            return icon;
+        }
+    }
+    fallback()
 }
 
 fn history_path() -> PathBuf {
@@ -714,7 +960,7 @@ fn learned_hours(samples: &[Sample]) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{learned_hours, Sample};
+    use super::{Sample, learned_hours};
 
     #[test]
     fn does_not_claim_learning_without_a_full_discharge() {
@@ -826,70 +1072,101 @@ unsafe fn ring(
     percent: Option<u8>,
     status: &str,
 ) {
-    let left = x + 30;
-    let top = y + 30;
-    let right = x + size - 30;
-    let bottom = y + size - 30;
-    let center_x = (left + right) / 2;
-    let center_y = (top + bottom) / 2;
-    let radius = (right - left) / 2;
-    let hollow = GetStockObject(HOLLOW_BRUSH);
-    let old_brush = SelectObject(dc, hollow);
-    let glow = CreatePen(PS_SOLID, 38, COLORREF(0x102619));
-    let old_glow = SelectObject(dc, glow.into());
-    let _ = Ellipse(dc, left, top, right, bottom);
-    SelectObject(dc, old_glow);
-    let _ = DeleteObject(glow.into());
-    let pen = CreatePen(PS_SOLID, 20, COLORREF(0x2A3948));
-    let old = SelectObject(dc, pen.into());
-    let _ = Ellipse(dc, left, top, right, bottom);
-    SelectObject(dc, old);
-    let _ = DeleteObject(pen.into());
-    if let Some(percent) = percent.filter(|value| *value > 0) {
-        let end = -PI / 2.0 + (percent as f64 / 100.0) * PI * 2.0;
-        let aura = CreatePen(PS_SOLID, 34, COLORREF(0x153C28));
-        let old_aura = SelectObject(dc, aura.into());
-        let _ = Arc(
-            dc,
-            left,
-            top,
-            right,
-            bottom,
-            center_x,
-            center_y - radius,
-            center_x + (radius as f64 * end.cos()) as i32,
-            center_y + (radius as f64 * end.sin()) as i32,
+    // GDI's Arc produces square, stair-stepped caps. The static GDI+ layer is
+    // antialiased, uses proper round caps and is invoked only for WM_PAINT.
+    let left = x + 34;
+    let top = y + 34;
+    let diameter = size - 68;
+    let center_x = x + size / 2;
+    let mut graphics = std::ptr::null_mut();
+    if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
+        let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
+        draw_gp_arc(
+            graphics, left, top, diameter, 0xff24323d, 22.0, -90.0, 359.95, true,
         );
-        SelectObject(dc, old_aura);
-        let _ = DeleteObject(aura.into());
-        let green = CreatePen(PS_SOLID, 20, COLORREF(0x87E21A));
-        let old = SelectObject(dc, green.into());
-        let _ = Arc(
-            dc,
-            left,
-            top,
-            right,
-            bottom,
-            center_x,
-            center_y - radius,
-            center_x + (radius as f64 * end.cos()) as i32,
-            center_y + (radius as f64 * end.sin()) as i32,
-        );
-        SelectObject(dc, old);
-        let _ = DeleteObject(green.into());
+        if let Some(value) = percent.filter(|value| *value > 0) {
+            let sweep = value as f32 * 3.6;
+            // The aura sits behind the value, is translucent, and never becomes a dark donut.
+            draw_gp_arc(
+                graphics,
+                left - 8,
+                top - 8,
+                diameter + 16,
+                0x1a2fe189,
+                30.0,
+                -90.0,
+                sweep,
+                true,
+            );
+            draw_gp_arc(
+                graphics,
+                left - 3,
+                top - 3,
+                diameter + 6,
+                0x422fe189,
+                26.0,
+                -90.0,
+                sweep,
+                true,
+            );
+            draw_gp_arc(
+                graphics,
+                left,
+                top,
+                diameter,
+                0xff2fe189,
+                22.0,
+                -90.0,
+                sweep.min(359.95),
+                value < 100,
+            );
+            if value == 100 {
+                draw_gp_arc(
+                    graphics, left, top, diameter, 0xff2fe189, 22.0, -90.0, 359.95, false,
+                );
+            }
+        }
+        let _ = GdipDeleteGraphics(graphics);
     }
-    SelectObject(dc, old_brush);
     let value = percent
         .map(|value| format!("{value}%"))
         .unwrap_or_else(|| "—%".to_owned());
-    draw_center(dc, &value, x + 50, y + 92, 205, 70, 45, 0xF5F5F5, true);
-    battery_glyph(dc, center_x, y + 178);
-    draw_center(dc, status, x + 55, y + 212, 195, 28, 13, 0xE9C0B0, false);
+    draw_center(dc, &value, x + 50, y + 98, 205, 62, 42, 0xF7F9FC, true);
+    battery_glyph(dc, center_x, y + 195, percent.is_some());
+    draw_center(dc, status, x + 48, y + 227, 210, 28, 15, 0xBED0E9, false);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn battery_glyph(dc: windows::Win32::Graphics::Gdi::HDC, center_x: i32, top: i32) {
-    let pen = CreatePen(PS_SOLID, 3, COLORREF(0x87E21A));
+unsafe fn draw_gp_arc(
+    graphics: *mut windows::Win32::Graphics::GdiPlus::GpGraphics,
+    x: i32,
+    y: i32,
+    d: i32,
+    argb: u32,
+    width: f32,
+    start: f32,
+    sweep: f32,
+    rounded: bool,
+) {
+    let mut pen = std::ptr::null_mut();
+    if GdipCreatePen1(argb, width, UnitPixel, &mut pen).0 == 0 {
+        if rounded {
+            let _ = GdipSetPenStartCap(pen, LineCapRound);
+            let _ = GdipSetPenEndCap(pen, LineCapRound);
+        }
+        let _ = GdipDrawArcI(graphics, pen, x, y, d, d, start, sweep);
+        let _ = GdipDeletePen(pen);
+    }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn battery_glyph(
+    dc: windows::Win32::Graphics::Gdi::HDC,
+    center_x: i32,
+    top: i32,
+    valid: bool,
+) {
+    let pen = CreatePen(PS_SOLID, 3, rgb(if valid { 0x2FE189 } else { 0x7890A4 }));
     let old = SelectObject(dc, pen.into());
     let _ = RoundRect(dc, center_x - 21, top, center_x + 19, top + 19, 3, 3);
     let _ = MoveToEx(dc, center_x + 20, top + 6, None);
@@ -904,7 +1181,7 @@ unsafe fn battery_glyph(dc: windows::Win32::Graphics::Gdi::HDC, center_x: i32, t
 unsafe fn clock_glyph(dc: windows::Win32::Graphics::Gdi::HDC, center_x: i32, center_y: i32) {
     let hollow = GetStockObject(HOLLOW_BRUSH);
     let old_brush = SelectObject(dc, hollow);
-    let pen = CreatePen(PS_SOLID, 2, COLORREF(0xE9C0B0));
+    let pen = CreatePen(PS_SOLID, 2, rgb(0xBED0E9));
     let old = SelectObject(dc, pen.into());
     let _ = Ellipse(dc, center_x - 6, center_y - 6, center_x + 6, center_y + 6);
     let _ = MoveToEx(dc, center_x, center_y - 4, None);
@@ -917,7 +1194,7 @@ unsafe fn clock_glyph(dc: windows::Win32::Graphics::Gdi::HDC, center_x: i32, cen
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn bars_glyph(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, baseline: i32) {
-    let pen = CreatePen(PS_SOLID, 4, COLORREF(0xE9C0B0));
+    let pen = CreatePen(PS_SOLID, 4, rgb(0xBED0E9));
     let old = SelectObject(dc, pen.into());
     let _ = MoveToEx(dc, x, baseline, None);
     let _ = LineTo(dc, x, baseline - 9);
@@ -936,14 +1213,50 @@ unsafe fn add_tray(hwnd: HWND) -> windows::core::Result<()> {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
         uID: 1,
-        uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
+        uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP,
         uCallbackMessage: TRAY_MESSAGE,
         hIcon: icon,
         ..Default::default()
     };
-    let tip: Vec<u16> = "R5 Battery Estimator V2".encode_utf16().collect();
+    let tip: Vec<u16> = tray_tip().encode_utf16().collect();
     data.szTip[..tip.len()].copy_from_slice(&tip);
     Shell_NotifyIconW(NIM_ADD, &data).ok()
+}
+
+fn tray_tip() -> String {
+    match BATTERY
+        .get()
+        .and_then(|state| state.lock().ok())
+        .map(|state| state.clone())
+    {
+        Some(ProbeResult::Ok { reading }) => format!(
+            "R5 Battery Estimator — {}% — {}",
+            reading.percent,
+            if reading.charging {
+                "Cargando"
+            } else {
+                "No cargando"
+            }
+        ),
+        _ => "R5 Battery Estimator — sin lectura válida".to_owned(),
+    }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn update_tray(hwnd: HWND) {
+    let mut data = NOTIFYICONDATAW {
+        cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: hwnd,
+        uID: 1,
+        uFlags: NIF_TIP | NIF_SHOWTIP,
+        ..Default::default()
+    };
+    let tip: Vec<u16> = tray_tip()
+        .encode_utf16()
+        .take(data.szTip.len() - 1)
+        .collect();
+    data.szTip[..tip.len()].copy_from_slice(&tip);
+    let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
