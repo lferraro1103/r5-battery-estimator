@@ -347,17 +347,18 @@ unsafe extern "system" fn window_proc(
             );
             draw_right(dc, "R5 ULTRA", 860, 84, 130, 45, 18, 0xFF5353, true);
             draw_mascot(dc, 1010, 62, 84);
-            card(dc, 390, 265, 350, 230);
-            card(dc, 765, 265, 340, 230);
+            // Their centres share the battery ring's centre line (y = 350.5).
+            card(dc, 390, 235, 350, 230);
+            card(dc, 765, 235, 340, 230);
             chart(dc, &samples);
             button(dc);
             ring(dc, 58, 198, 305, percent, status);
-            clock_glyph(dc, 429, 310);
+            clock_glyph(dc, 429, 280);
             draw(
                 dc,
                 "DURACIÓN DE CARGA COMPLETA",
                 444,
-                295,
+                265,
                 290,
                 30,
                 11,
@@ -370,7 +371,7 @@ unsafe extern "system" fn window_proc(
                     .map(|hours| format!("{hours:.0} h"))
                     .unwrap_or_else(|| "Aprendiendo".to_owned()),
                 420,
-                355,
+                325,
                 290,
                 62,
                 42,
@@ -381,19 +382,19 @@ unsafe extern "system" fn window_proc(
                 dc,
                 "Se aprende con tu descarga real.",
                 420,
-                435,
+                405,
                 290,
                 30,
                 11,
                 0xBED0E9,
                 false,
             );
-            bars_glyph(dc, 802, 321);
+            bars_glyph(dc, 802, 291);
             draw(
                 dc,
                 "AUTONOMÍA RESTANTE",
                 826,
-                295,
+                265,
                 270,
                 30,
                 11,
@@ -406,7 +407,7 @@ unsafe extern "system" fn window_proc(
                     .map(|value| format!("{:.0} h", remaining_hours(learned, value)))
                     .unwrap_or_else(|| "—".to_owned()),
                 795,
-                355,
+                325,
                 270,
                 62,
                 42,
@@ -417,7 +418,7 @@ unsafe extern "system" fn window_proc(
                 dc,
                 "Se recalcula cada 30 segundos.",
                 795,
-                435,
+                405,
                 280,
                 30,
                 11,
