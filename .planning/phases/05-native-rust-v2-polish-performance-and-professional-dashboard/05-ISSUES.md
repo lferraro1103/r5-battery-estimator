@@ -12,3 +12,13 @@ User-reported regressions recorded before implementation:
 - [x] Align the history bars glyph with the heading's optical centre.
 
 Verification still required from the user on the live desktop preview because the direct Win32 surface is not available to the current automated screen-capture surface.
+
+## Approved polish pass
+
+- [x] Replace clock, autonomy, and history glyph strokes with antialiased vector primitives.
+- [x] Align the history and autonomy glyphs to their respective label baselines.
+- [x] Raise the battery glyph and status copy slightly as a single group.
+- [x] Give the inner progress ring the same real blurred bloom treatment as the chart, without changing the two-ring geometry.
+- [x] Vertically balance the complete duration-card content group, including title, value, and supporting copy.
+- [x] Use a consistent display type scale for `Aprendiendo` and remaining-autonomy hours.
+- [x] Keep the percentage display field invariant between valid and invalid readings.

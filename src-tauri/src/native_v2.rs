@@ -28,7 +28,7 @@ use windows::{
             GdipCreateBitmapFromScan0, GdipCreateEffect, GdipCreateFromHDC,
             GdipCreateHICONFromBitmap, GdipCreatePen1, GdipCreateLineBrushFromRectI,
             GdipDeleteBrush, GdipDeleteEffect, GdipDeleteGraphics, GdipDeletePen,
-            GdipDisposeImage, GdipDrawArcI, GdipDrawCurve2I, GdipDrawImageRectI,
+            GdipDisposeImage, GdipDrawArcI, GdipDrawCurve2I, GdipDrawImageRectI, GdipDrawLinesI,
             GdipFillPolygonI, GdipGetImageGraphicsContext, GdipSetEffectParameters,
             GdipSetPenEndCap, GdipSetPenStartCap, GdipSetSmoothingMode,
             FillModeWinding, GdiplusStartup, GdiplusStartupInput, LineCapRound,
@@ -338,12 +338,12 @@ unsafe extern "system" fn window_proc(
             chart(dc, &samples);
             button(dc);
             ring(dc, 58, 198, 305, percent, status);
-            clock_glyph(dc, 429, 320);
+            clock_glyph(dc, 429, 310);
             draw(
                 dc,
                 "DURACIÓN DE CARGA COMPLETA",
                 449,
-                305,
+                295,
                 290,
                 30,
                 11,
@@ -356,10 +356,10 @@ unsafe extern "system" fn window_proc(
                     .map(|hours| format!("{hours:.0} h"))
                     .unwrap_or_else(|| "Aprendiendo".to_owned()),
                 420,
-                365,
+                355,
                 290,
                 62,
-                31,
+                42,
                 0xF5F5F5,
                 true,
             );
@@ -367,19 +367,19 @@ unsafe extern "system" fn window_proc(
                 dc,
                 "Se aprende con tu descarga real.",
                 420,
-                445,
+                435,
                 290,
                 30,
                 11,
                 0xBED0E9,
                 false,
             );
-            bars_glyph(dc, 802, 333);
+            bars_glyph(dc, 802, 323);
             draw(
                 dc,
                 "AUTONOMÍA RESTANTE",
                 826,
-                305,
+                295,
                 270,
                 30,
                 11,
@@ -392,10 +392,10 @@ unsafe extern "system" fn window_proc(
                     .map(|value| format!("{:.0} h", remaining_hours(learned, value)))
                     .unwrap_or_else(|| "—".to_owned()),
                 795,
-                365,
+                355,
                 270,
                 70,
-                48,
+                42,
                 0xF5F5F5,
                 true,
             );
@@ -403,7 +403,7 @@ unsafe extern "system" fn window_proc(
                 dc,
                 "Se recalcula cada 30 segundos.",
                 795,
-                445,
+                435,
                 280,
                 30,
                 11,
@@ -1113,12 +1113,12 @@ unsafe fn ring(
         }
         let _ = GdipDeleteGraphics(graphics);
     }
-    let value = percent
-        .map(|value| format!("{value}%"))
-        .unwrap_or_else(|| "—%".to_owned());
-    draw_center(dc, &value, x + 50, y + 98, 205, 62, 42, 0xF7F9FC, true);
-    battery_glyph(dc, center_x, y + 178, percent.is_some());
-    draw_center(dc, status, x + 48, y + 212, 210, 28, 15, 0xBED0E9, false);
+    let (value, value_size) = percent
+        .map(|value| (format!("{value}%"), 42))
+        .unwrap_or_else(|| ("—%".to_owned(), 38));
+    draw_center(dc, &value, x + 50, y + 98, 205, 62, value_size, 0xF7F9FC, true);
+    battery_glyph(dc, center_x, y + 173, percent.is_some());
+    draw_center(dc, status, x + 48, y + 207, 210, 28, 15, 0xBED0E9, false);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -1138,12 +1138,12 @@ unsafe fn draw_blurred_arc(
     let mut mask_graphics = std::ptr::null_mut();
     if GdipGetImageGraphicsContext(bitmap.cast(), &mut mask_graphics).0 == 0 {
         let _ = GdipSetSmoothingMode(mask_graphics, SmoothingModeAntiAlias);
-        draw_gp_arc(mask_graphics, left, top, diameter, 0xA02FE189, 18.0, -90.0, sweep.min(359.95), true);
+        draw_gp_arc(mask_graphics, left, top, diameter, 0xC02FE189, 18.0, -90.0, sweep.min(359.95), true);
         let _ = GdipDeleteGraphics(mask_graphics);
     }
     let mut effect = std::ptr::null_mut();
     if GdipCreateEffect(BlurEffectGuid, &mut effect).0 == 0 {
-        let params = BlurParams { radius: 11.0, expandEdge: true.into() };
+        let params = BlurParams { radius: 13.0, expandEdge: true.into() };
         let _ = GdipSetEffectParameters(effect, (&params as *const BlurParams).cast(), size_of::<BlurParams>() as u32);
         let mut roi = windows::Win32::Foundation::RECT { left: 0, top: 0, right: size, bottom: size };
         let _ = GdipBitmapApplyEffect(bitmap, effect, &mut roi, false, std::ptr::null_mut(), std::ptr::null_mut());
@@ -1198,6 +1198,22 @@ unsafe fn draw_gp_curve(
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn draw_gp_polyline(
+    graphics: *mut windows::Win32::Graphics::GdiPlus::GpGraphics,
+    points: &[Point],
+    argb: u32,
+    width: f32,
+) {
+    let mut pen = std::ptr::null_mut();
+    if GdipCreatePen1(argb, width, UnitPixel, &mut pen).0 == 0 {
+        let _ = GdipSetPenStartCap(pen, LineCapRound);
+        let _ = GdipSetPenEndCap(pen, LineCapRound);
+        let _ = GdipDrawLinesI(graphics, pen, points.as_ptr(), points.len() as i32);
+        let _ = GdipDeletePen(pen);
+    }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn battery_glyph(
     dc: windows::Win32::Graphics::Gdi::HDC,
     center_x: i32,
@@ -1220,31 +1236,25 @@ unsafe fn battery_glyph(
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn clock_glyph(dc: windows::Win32::Graphics::Gdi::HDC, center_x: i32, center_y: i32) {
-    let hollow = GetStockObject(HOLLOW_BRUSH);
-    let old_brush = SelectObject(dc, hollow);
-    let pen = CreatePen(PS_SOLID, 2, rgb(0xBED0E9));
-    let old = SelectObject(dc, pen.into());
-    let _ = Ellipse(dc, center_x - 6, center_y - 6, center_x + 6, center_y + 6);
-    let _ = MoveToEx(dc, center_x, center_y - 4, None);
-    let _ = LineTo(dc, center_x, center_y);
-    let _ = LineTo(dc, center_x + 4, center_y + 2);
-    SelectObject(dc, old);
-    SelectObject(dc, old_brush);
-    let _ = DeleteObject(pen.into());
+    let mut graphics = std::ptr::null_mut();
+    if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
+        let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
+        draw_gp_arc(graphics, center_x - 7, center_y - 7, 14, 0xFFBED0E9, 2.0, -90.0, 359.95, false);
+        draw_gp_polyline(graphics, &[Point { X: center_x, Y: center_y - 4 }, Point { X: center_x, Y: center_y }, Point { X: center_x + 4, Y: center_y + 2 }], 0xFFBED0E9, 2.0);
+        let _ = GdipDeleteGraphics(graphics);
+    }
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn bars_glyph(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, baseline: i32) {
-    let pen = CreatePen(PS_SOLID, 4, rgb(0xBED0E9));
-    let old = SelectObject(dc, pen.into());
-    let _ = MoveToEx(dc, x, baseline, None);
-    let _ = LineTo(dc, x, baseline - 9);
-    let _ = MoveToEx(dc, x + 8, baseline, None);
-    let _ = LineTo(dc, x + 8, baseline - 17);
-    let _ = MoveToEx(dc, x + 16, baseline, None);
-    let _ = LineTo(dc, x + 16, baseline - 25);
-    SelectObject(dc, old);
-    let _ = DeleteObject(pen.into());
+    let mut graphics = std::ptr::null_mut();
+    if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
+        let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
+        for (offset, height) in [(0, 9), (8, 17), (16, 25)] {
+            draw_gp_polyline(graphics, &[Point { X: x + offset, Y: baseline }, Point { X: x + offset, Y: baseline - height }], 0xFFBED0E9, 3.5);
+        }
+        let _ = GdipDeleteGraphics(graphics);
+    }
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
