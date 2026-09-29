@@ -24,11 +24,15 @@ use windows::{
             SetBkMode, SetTextColor, SetWindowRgn, TRANSPARENT,
         },
         Graphics::GdiPlus::{
-            GdipCreateBitmapFromFile, GdipCreateFromHDC, GdipCreateHICONFromBitmap, GdipCreatePen1,
-            GdipDeleteGraphics, GdipDeletePen, GdipDisposeImage, GdipDrawArcI, GdipDrawCurve2I,
-            GdipDrawImageRectI, GdipSetPenEndCap, GdipSetPenStartCap, GdipSetSmoothingMode,
-            GdiplusStartup, GdiplusStartupInput, LineCapRound, Point, SmoothingModeAntiAlias,
-            UnitPixel,
+            BlurEffectGuid, BlurParams, GdipBitmapApplyEffect, GdipCreateBitmapFromFile,
+            GdipCreateBitmapFromScan0, GdipCreateEffect, GdipCreateFromHDC,
+            GdipCreateHICONFromBitmap, GdipCreatePen1, GdipCreateLineBrushFromRectI,
+            GdipDeleteBrush, GdipDeleteEffect, GdipDeleteGraphics, GdipDeletePen,
+            GdipDisposeImage, GdipDrawArcI, GdipDrawCurve2I, GdipDrawImageRectI,
+            GdipFillPolygonI, GdipGetImageGraphicsContext, GdipSetEffectParameters,
+            GdipSetPenEndCap, GdipSetPenStartCap, GdipSetSmoothingMode,
+            FillModeWinding, GdiplusStartup, GdiplusStartupInput, LineCapRound,
+            LinearGradientModeVertical, Point, SmoothingModeAntiAlias, UnitPixel, WrapModeTileFlipX,
         },
         System::LibraryLoader::GetModuleHandleW,
         System::Threading::CreateMutexW,
@@ -681,8 +685,17 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
         let mut graphics = std::ptr::null_mut();
         if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
             let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
-            // Centre-aligned, translucent bloom — never an offset drop shadow.
-            draw_gp_curve(graphics, &points, 0x202FE189, 13.0);
+            // The visual depth belongs exclusively under the data line: a vertical
+            // green fade to transparent, not an outline shadow around the series.
+            let mut area = points.clone();
+            area.push(Point { X: points.last().expect("points not empty").X, Y: 799 });
+            area.push(Point { X: points[0].X, Y: 799 });
+            let mut brush = std::ptr::null_mut();
+            let gradient_bounds = windows::Win32::Graphics::GdiPlus::Rect { X: 145, Y: 665, Width: 923, Height: 134 };
+            if GdipCreateLineBrushFromRectI(&gradient_bounds, 0x4A2FE189, 0x002FE189, LinearGradientModeVertical, WrapModeTileFlipX, &mut brush).0 == 0 {
+                let _ = GdipFillPolygonI(graphics, brush.cast(), area.as_ptr(), area.len() as i32, FillModeWinding);
+                let _ = GdipDeleteBrush(brush.cast());
+            }
             draw_gp_curve(graphics, &points, 0xFF2FE189, 3.0);
             let _ = GdipDeleteGraphics(graphics);
         }
@@ -1063,52 +1076,24 @@ unsafe fn ring(
 ) {
     // GDI's Arc produces square, stair-stepped caps. The static GDI+ layer is
     // antialiased, uses proper round caps and is invoked only for WM_PAINT.
-    let left = x + 34;
-    let top = y + 34;
-    let diameter = size - 68;
+    // Two concentric rings: a decorative outer instrument ring and a separate,
+    // smaller inner progress ring. Their gap is intentional and always visible.
+    let outer_left = x + 14;
+    let outer_top = y + 14;
+    let outer_diameter = size - 28;
+    let left = x + 43;
+    let top = y + 43;
+    let diameter = size - 86;
     let center_x = x + size / 2;
     let mut graphics = std::ptr::null_mut();
     if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
         let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
-        draw_gp_arc(
-            graphics, left, top, diameter, 0xff24323d, 22.0, -90.0, 359.95, true,
-        );
+        draw_gp_arc(graphics, outer_left, outer_top, outer_diameter, 0xff27333e, 3.0, -90.0, 359.95, false);
+        draw_gp_arc(graphics, left, top, diameter, 0xff24323d, 18.0, -90.0, 359.95, true);
         if let Some(value) = percent.filter(|value| *value > 0) {
             let sweep = value as f32 * 3.6;
-            // Three green alpha layers create an emitted-light aura rather than a shadow.
-            draw_gp_arc(
-                graphics,
-                left - 16,
-                top - 16,
-                diameter + 32,
-                0x0a2fe189,
-                52.0,
-                -90.0,
-                sweep,
-                true,
-            );
-            draw_gp_arc(
-                graphics,
-                left - 10,
-                top - 10,
-                diameter + 20,
-                0x1e2fe189,
-                40.0,
-                -90.0,
-                sweep,
-                true,
-            );
-            draw_gp_arc(
-                graphics,
-                left - 4,
-                top - 4,
-                diameter + 8,
-                0x4f2fe189,
-                28.0,
-                -90.0,
-                sweep,
-                true,
-            );
+            // A raster mask is actually blurred with the GDI+ Blur effect before composition.
+            draw_blurred_arc(dc, x, y, size, left - x, top - y, diameter, sweep);
             draw_gp_arc(
                 graphics,
                 left,
@@ -1134,6 +1119,42 @@ unsafe fn ring(
     draw_center(dc, &value, x + 50, y + 98, 205, 62, 42, 0xF7F9FC, true);
     battery_glyph(dc, center_x, y + 178, percent.is_some());
     draw_center(dc, status, x + 48, y + 212, 210, 28, 15, 0xBED0E9, false);
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn draw_blurred_arc(
+    target: windows::Win32::Graphics::Gdi::HDC,
+    x: i32,
+    y: i32,
+    size: i32,
+    left: i32,
+    top: i32,
+    diameter: i32,
+    sweep: f32,
+) {
+    const PIXEL_FORMAT_32BPP_ARGB: i32 = 0x0026_200A;
+    let mut bitmap = std::ptr::null_mut();
+    if GdipCreateBitmapFromScan0(size, size, 0, PIXEL_FORMAT_32BPP_ARGB, None, &mut bitmap).0 != 0 { return; }
+    let mut mask_graphics = std::ptr::null_mut();
+    if GdipGetImageGraphicsContext(bitmap.cast(), &mut mask_graphics).0 == 0 {
+        let _ = GdipSetSmoothingMode(mask_graphics, SmoothingModeAntiAlias);
+        draw_gp_arc(mask_graphics, left, top, diameter, 0xA02FE189, 18.0, -90.0, sweep.min(359.95), true);
+        let _ = GdipDeleteGraphics(mask_graphics);
+    }
+    let mut effect = std::ptr::null_mut();
+    if GdipCreateEffect(BlurEffectGuid, &mut effect).0 == 0 {
+        let params = BlurParams { radius: 11.0, expandEdge: true.into() };
+        let _ = GdipSetEffectParameters(effect, (&params as *const BlurParams).cast(), size_of::<BlurParams>() as u32);
+        let mut roi = windows::Win32::Foundation::RECT { left: 0, top: 0, right: size, bottom: size };
+        let _ = GdipBitmapApplyEffect(bitmap, effect, &mut roi, false, std::ptr::null_mut(), std::ptr::null_mut());
+        let _ = GdipDeleteEffect(effect);
+    }
+    let mut target_graphics = std::ptr::null_mut();
+    if GdipCreateFromHDC(target, &mut target_graphics).0 == 0 {
+        let _ = GdipDrawImageRectI(target_graphics, bitmap.cast(), x, y, size, size);
+        let _ = GdipDeleteGraphics(target_graphics);
+    }
+    let _ = GdipDisposeImage(bitmap.cast());
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
