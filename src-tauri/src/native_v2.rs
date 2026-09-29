@@ -26,8 +26,9 @@ use windows::{
         Graphics::GdiPlus::{
             GdipCreateBitmapFromFile, GdipCreateFromHDC, GdipCreateHICONFromBitmap, GdipCreatePen1,
             GdipDeleteGraphics, GdipDeletePen, GdipDisposeImage, GdipDrawArcI, GdipDrawImageRectI,
-            GdipSetPenEndCap, GdipSetPenStartCap, GdipSetSmoothingMode, GdiplusStartup,
-            GdiplusStartupInput, LineCapRound, SmoothingModeAntiAlias, UnitPixel,
+            GdipDrawLinesI, GdipSetPenEndCap, GdipSetPenStartCap, GdipSetSmoothingMode,
+            GdiplusStartup, GdiplusStartupInput, LineCapRound, Point, SmoothingModeAntiAlias,
+            UnitPixel,
         },
         System::LibraryLoader::GetModuleHandleW,
         System::Threading::CreateMutexW,
@@ -35,7 +36,7 @@ use windows::{
             Input::KeyboardAndMouse::ReleaseCapture,
             Shell::{
                 NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-                NOTIFYICONDATAW, Shell_NotifyIconW,
+                NIM_SETVERSION, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
             },
             WindowsAndMessaging::{
                 AppendMenuW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu,
@@ -64,8 +65,7 @@ static BATTERY: OnceLock<Mutex<ProbeResult>> = OnceLock::new();
 static HISTORY: OnceLock<Mutex<Vec<Sample>>> = OnceLock::new();
 
 struct BrandImages {
-    title: *mut windows::Win32::Graphics::GdiPlus::GpImage,
-    mascot: *mut windows::Win32::Graphics::GdiPlus::GpImage,
+    shark: *mut windows::Win32::Graphics::GdiPlus::GpImage,
 }
 thread_local! { static BRAND_IMAGES: RefCell<Option<BrandImages>> = const { RefCell::new(None) }; }
 
@@ -370,7 +370,7 @@ unsafe extern "system" fn window_proc(
                 0xBED0E9,
                 false,
             );
-            bars_glyph(dc, 802, 320);
+            bars_glyph(dc, 802, 333);
             draw(
                 dc,
                 "AUTONOMÍA RESTANTE",
@@ -385,8 +385,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 &percent
-                    .zip(learned)
-                    .map(|(value, hours)| format!("{:.0} h", hours * value as f64 / 100.0))
+                    .map(|value| format!("{:.0} h", remaining_hours(learned, value)))
                     .unwrap_or_else(|| "—".to_owned()),
                 795,
                 365,
@@ -639,7 +638,8 @@ unsafe fn card(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, width: i3
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
     card(dc, 38, 570, 1064, 280);
-    bars_glyph(dc, 92, 622);
+    // The tallest bar and heading share the same optical vertical centre.
+    bars_glyph(dc, 92, 632);
     draw(
         dc,
         "HISTORIAL: HORA / PORCENTAJE",
@@ -679,21 +679,19 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
         .filter(|sample| sample.at >= start && sample.at <= now)
         .collect();
     if visible.len() >= 2 {
-        let green = CreatePen(PS_SOLID, 3, rgb(0x2FE189));
-        let old = SelectObject(dc, green.into());
-        for (index, sample) in visible.iter().enumerate() {
-            let x = 145
-                + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0)
-                    as i32;
-            let y = 799 - sample.percent as i32 * 134 / 100;
-            if index == 0 {
-                let _ = MoveToEx(dc, x, y, None);
-            } else {
-                let _ = LineTo(dc, x, y);
-            }
+        let points: Vec<Point> = visible.iter().map(|sample| Point {
+            X: 145 + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0) as i32,
+            Y: 799 - sample.percent as i32 * 134 / 100,
+        }).collect();
+        let mut graphics = std::ptr::null_mut();
+        if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
+            let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
+            // Same three-layer light treatment as the battery ring, restrained for a data series.
+            draw_gp_lines(graphics, &points, 0x122FE189, 16.0);
+            draw_gp_lines(graphics, &points, 0x382FE189, 8.0);
+            draw_gp_lines(graphics, &points, 0xFF2FE189, 3.0);
+            let _ = GdipDeleteGraphics(graphics);
         }
-        SelectObject(dc, old);
-        let _ = DeleteObject(green.into());
     } else if let Some(sample) = visible.first() {
         let x = 145
             + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0) as i32;
@@ -748,12 +746,12 @@ unsafe fn button(dc: windows::Win32::Graphics::Gdi::HDC) {
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn draw_brand_icon(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, size: i32) {
-    draw_brand_image(dc, false, x, y, size, size);
+    draw_brand_image(dc, x, y, size, size);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn draw_mascot(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, size: i32) {
-    draw_brand_image(dc, true, x, y, size, size);
+    draw_brand_image(dc, x, y, size, size);
 }
 
 fn asset_path(name: &str) -> Option<PathBuf> {
@@ -797,7 +795,6 @@ unsafe fn load_brand_image(name: &str) -> *mut windows::Win32::Graphics::GdiPlus
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn draw_brand_image(
     dc: windows::Win32::Graphics::Gdi::HDC,
-    mascot: bool,
     x: i32,
     y: i32,
     width: i32,
@@ -807,14 +804,10 @@ unsafe fn draw_brand_image(
         let mut images = images.borrow_mut();
         if images.is_none() {
             *images = Some(BrandImages {
-                title: load_brand_image("shark-head-battery.png"),
-                mascot: load_brand_image("shark-battery.png"),
+                shark: load_brand_image("shark-battery.png"),
             });
         }
-        let image = images
-            .as_ref()
-            .map(|assets| if mascot { assets.mascot } else { assets.title })
-            .unwrap_or(std::ptr::null_mut());
+        let image = images.as_ref().map(|assets| assets.shark).unwrap_or(std::ptr::null_mut());
         if image.is_null() {
             return;
         }
@@ -831,12 +824,7 @@ unsafe fn draw_brand_image(
 unsafe fn release_brand_images() {
     BRAND_IMAGES.with(|images| {
         if let Some(images) = images.borrow_mut().take() {
-            if !images.title.is_null() {
-                let _ = GdipDisposeImage(images.title);
-            }
-            if !images.mascot.is_null() {
-                let _ = GdipDisposeImage(images.mascot);
-            }
+            if !images.shark.is_null() { let _ = GdipDisposeImage(images.shark); }
         }
     });
 }
@@ -845,7 +833,7 @@ unsafe fn release_brand_images() {
 unsafe fn native_icon() -> HICON {
     let fallback =
         || LoadIconW(None, IDI_APPLICATION).expect("Windows application icon must exist");
-    let image = load_brand_image("shark-head-battery.png");
+    let image = load_brand_image("shark-battery.png");
     if !image.is_null() {
         let mut icon = HICON::default();
         let status = GdipCreateHICONFromBitmap(image.cast(), &mut icon);
@@ -956,6 +944,13 @@ fn learned_hours(samples: &[Sample]) -> Option<f64> {
         return None;
     }
     Some((100.0 / (dropped as f64 / (elapsed as f64 / 3600.0))).clamp(5.0, 1000.0))
+}
+
+/// A clearly provisional baseline keeps the live autonomy useful before a full
+/// discharge has been observed. The adjacent full-charge card remains
+/// `Aprendiendo`, so this is never presented as a learned calibration.
+fn remaining_hours(learned: Option<f64>, percent: u8) -> f64 {
+    learned.unwrap_or(200.0) * percent as f64 / 100.0
 }
 
 #[cfg(test)]
@@ -1086,25 +1081,36 @@ unsafe fn ring(
         );
         if let Some(value) = percent.filter(|value| *value > 0) {
             let sweep = value as f32 * 3.6;
-            // The aura sits behind the value, is translucent, and never becomes a dark donut.
+            // Three green alpha layers create an emitted-light aura rather than a shadow.
             draw_gp_arc(
                 graphics,
-                left - 8,
-                top - 8,
-                diameter + 16,
-                0x1a2fe189,
-                30.0,
+                left - 16,
+                top - 16,
+                diameter + 32,
+                0x0a2fe189,
+                52.0,
                 -90.0,
                 sweep,
                 true,
             );
             draw_gp_arc(
                 graphics,
-                left - 3,
-                top - 3,
-                diameter + 6,
-                0x422fe189,
-                26.0,
+                left - 10,
+                top - 10,
+                diameter + 20,
+                0x1e2fe189,
+                40.0,
+                -90.0,
+                sweep,
+                true,
+            );
+            draw_gp_arc(
+                graphics,
+                left - 4,
+                top - 4,
+                diameter + 8,
+                0x4f2fe189,
+                28.0,
                 -90.0,
                 sweep,
                 true,
@@ -1132,8 +1138,8 @@ unsafe fn ring(
         .map(|value| format!("{value}%"))
         .unwrap_or_else(|| "—%".to_owned());
     draw_center(dc, &value, x + 50, y + 98, 205, 62, 42, 0xF7F9FC, true);
-    battery_glyph(dc, center_x, y + 195, percent.is_some());
-    draw_center(dc, status, x + 48, y + 227, 210, 28, 15, 0xBED0E9, false);
+    battery_glyph(dc, center_x, y + 178, percent.is_some());
+    draw_center(dc, status, x + 48, y + 212, 210, 28, 15, 0xBED0E9, false);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -1160,6 +1166,22 @@ unsafe fn draw_gp_arc(
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn draw_gp_lines(
+    graphics: *mut windows::Win32::Graphics::GdiPlus::GpGraphics,
+    points: &[Point],
+    argb: u32,
+    width: f32,
+) {
+    let mut pen = std::ptr::null_mut();
+    if GdipCreatePen1(argb, width, UnitPixel, &mut pen).0 == 0 {
+        let _ = GdipSetPenStartCap(pen, LineCapRound);
+        let _ = GdipSetPenEndCap(pen, LineCapRound);
+        let _ = GdipDrawLinesI(graphics, pen, points.as_ptr(), points.len() as i32);
+        let _ = GdipDeletePen(pen);
+    }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn battery_glyph(
     dc: windows::Win32::Graphics::Gdi::HDC,
     center_x: i32,
@@ -1167,6 +1189,8 @@ unsafe fn battery_glyph(
     valid: bool,
 ) {
     let pen = CreatePen(PS_SOLID, 3, rgb(if valid { 0x2FE189 } else { 0x7890A4 }));
+    let hollow = GetStockObject(HOLLOW_BRUSH);
+    let old_brush = SelectObject(dc, hollow);
     let old = SelectObject(dc, pen.into());
     let _ = RoundRect(dc, center_x - 21, top, center_x + 19, top + 19, 3, 3);
     let _ = MoveToEx(dc, center_x + 20, top + 6, None);
@@ -1174,6 +1198,7 @@ unsafe fn battery_glyph(
     let _ = LineTo(dc, center_x + 25, top + 14);
     let _ = LineTo(dc, center_x + 20, top + 14);
     SelectObject(dc, old);
+    SelectObject(dc, old_brush);
     let _ = DeleteObject(pen.into());
 }
 
@@ -1220,7 +1245,10 @@ unsafe fn add_tray(hwnd: HWND) -> windows::core::Result<()> {
     };
     let tip: Vec<u16> = tray_tip().encode_utf16().collect();
     data.szTip[..tip.len()].copy_from_slice(&tip);
-    Shell_NotifyIconW(NIM_ADD, &data).ok()
+    Shell_NotifyIconW(NIM_ADD, &data).ok()?;
+    // Standard hover text is only guaranteed after negotiating the current shell protocol.
+    data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+    Shell_NotifyIconW(NIM_SETVERSION, &data).ok()
 }
 
 fn tray_tip() -> String {
