@@ -16,7 +16,7 @@ use windows::{
     Win32::{
         Foundation::{COLORREF, ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, WPARAM},
         Graphics::Gdi::{
-            BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreatePen,
+            ANTIALIASED_QUALITY, BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreatePen,
             CreateRoundRectRgn, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
             DT_LEFT, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, Ellipse, EndPaint,
             FW_BOLD, FW_NORMAL, FillRect, GetStockObject, HOLLOW_BRUSH, InvalidateRect, LineTo,
@@ -27,8 +27,10 @@ use windows::{
             BlurEffectGuid, BlurParams, CompositingQualityHighQuality, GdipBitmapApplyEffect, GdipCreateBitmapFromFile,
             GdipCreateBitmapFromScan0, GdipCreateEffect, GdipCreateFromHDC,
             GdipCreateHICONFromBitmap, GdipCreatePen1, GdipCreateLineBrushFromRectI,
+            GdipCreateSolidFill,
             GdipDeleteBrush, GdipDeleteEffect, GdipDeleteGraphics, GdipDeletePen,
             GdipDisposeImage, GdipDrawArcI, GdipDrawCurve2I, GdipDrawEllipseI, GdipDrawImageRectI, GdipDrawLinesI,
+            GdipFillEllipseI,
             GdipFillPolygonI, GdipGetImageGraphicsContext, GdipSetCompositingQuality,
             GdipSetEffectParameters, GdipSetInterpolationMode, GdipSetPenEndCap,
             GdipSetPenStartCap, GdipSetPixelOffsetMode, GdipSetSmoothingMode,
@@ -48,7 +50,7 @@ use windows::{
                 AppendMenuW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu,
                 CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW,
                 GetCursorPos, GetMessageW, HICON, HTCAPTION, IDC_ARROW, IDI_APPLICATION,
-                LoadCursorW, LoadIconW, MF_SEPARATOR, MF_STRING, MSG, PostQuitMessage,
+                DestroyIcon, LoadCursorW, LoadIconW, MF_SEPARATOR, MF_STRING, MSG, PostQuitMessage,
                 RegisterClassW, SW_HIDE, SW_SHOW, SendMessageW, SetForegroundWindow, SetTimer,
                 ShowWindow, TrackPopupMenu, TranslateMessage, WINDOW_EX_STYLE, WM_APP, WM_CLOSE,
                 WM_COMMAND, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT,
@@ -341,7 +343,7 @@ unsafe extern "system" fn window_proc(
             button(dc);
             ring(dc, 58, 198, 305, percent, status);
             clock_glyph(dc, 429, 310);
-            draw(
+            draw_card_copy(
                 dc,
                 "DURACIÓN DE CARGA COMPLETA",
                 449,
@@ -365,7 +367,7 @@ unsafe extern "system" fn window_proc(
                 0xF5F5F5,
                 true,
             );
-            draw(
+            draw_card_copy(
                 dc,
                 "Se aprende con tu descarga real.",
                 420,
@@ -377,7 +379,7 @@ unsafe extern "system" fn window_proc(
                 false,
             );
             bars_glyph(dc, 802, 321);
-            draw(
+            draw_card_copy(
                 dc,
                 "AUTONOMÍA RESTANTE",
                 826,
@@ -401,7 +403,7 @@ unsafe extern "system" fn window_proc(
                 0xF5F5F5,
                 true,
             );
-            draw(
+            draw_card_copy(
                 dc,
                 "Se recalcula cada 30 segundos.",
                 795,
@@ -511,6 +513,52 @@ unsafe fn draw(
         &mut rect,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE,
     );
+    SelectObject(dc, old);
+    let _ = DeleteObject(font.into());
+}
+
+/// Card metadata uses the modern variable Segoe face with grayscale antialiasing.
+/// It stays visually stable in screenshots and at the compact 11 px dashboard size,
+/// unlike sub-pixel ClearType colour fringing.
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn draw_card_copy(
+    dc: windows::Win32::Graphics::Gdi::HDC,
+    text: &str,
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+    size: i32,
+    color: u32,
+    bold: bool,
+) {
+    let font = CreateFontW(
+        -size,
+        0,
+        0,
+        0,
+        if bold { FW_BOLD.0 as i32 } else { FW_NORMAL.0 as i32 },
+        0,
+        0,
+        0,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        ANTIALIASED_QUALITY,
+        DEFAULT_PITCH.0 as u32,
+        w!("Segoe UI Variable Text"),
+    );
+    let old = SelectObject(dc, font.into());
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, rgb(color));
+    let mut wide: Vec<u16> = text.encode_utf16().collect();
+    let mut rect = windows::Win32::Foundation::RECT {
+        left,
+        top,
+        right: left + width,
+        bottom: top + height,
+    };
+    DrawTextW(dc, &mut wide, &mut rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     SelectObject(dc, old);
     let _ = DeleteObject(font.into());
 }
@@ -858,6 +906,77 @@ unsafe fn native_icon() -> HICON {
         }
     }
     fallback()
+}
+
+/// Small native tray artwork: a compact shark face whose body colour communicates
+/// battery state.  It deliberately has no battery on its head; that asset remains
+/// reserved for the title bar and panel mascot.
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn tray_icon() -> HICON {
+    const PIXEL_FORMAT_32BPP_ARGB: i32 = 0x0026_200A;
+    let tint = BATTERY
+        .get()
+        .and_then(|state| state.lock().ok())
+        .and_then(|state| match &*state {
+            ProbeResult::Ok { reading } if reading.percent >= 55 => Some(0xff31d783),
+            ProbeResult::Ok { reading } if reading.percent >= 25 => Some(0xffffbd45),
+            ProbeResult::Ok { .. } => Some(0xffef5350),
+            _ => None,
+        })
+        .unwrap_or(0xff6b7b89);
+    let mut bitmap = std::ptr::null_mut();
+    if GdipCreateBitmapFromScan0(64, 64, 0, PIXEL_FORMAT_32BPP_ARGB, None, &mut bitmap).0 != 0 {
+        return native_icon();
+    }
+    let mut graphics = std::ptr::null_mut();
+    if GdipGetImageGraphicsContext(bitmap.cast(), &mut graphics).0 == 0 {
+        let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
+        let _ = GdipSetPixelOffsetMode(graphics, PixelOffsetModeHighQuality);
+        fill_gp_polygon(graphics, &[Point { X: 29, Y: 12 }, Point { X: 39, Y: 2 }, Point { X: 42, Y: 21 }], tint);
+        fill_gp_polygon(graphics, &[Point { X: 9, Y: 38 }, Point { X: 1, Y: 47 }, Point { X: 17, Y: 48 }], tint);
+        fill_gp_polygon(graphics, &[Point { X: 55, Y: 38 }, Point { X: 63, Y: 47 }, Point { X: 47, Y: 48 }], tint);
+        fill_gp_ellipse(graphics, 7, 14, 50, 43, tint);
+        fill_gp_ellipse(graphics, 13, 34, 38, 20, 0xfff5fbff);
+        fill_gp_ellipse(graphics, 19, 29, 8, 10, 0xff07131c);
+        fill_gp_ellipse(graphics, 38, 29, 8, 10, 0xff07131c);
+        fill_gp_ellipse(graphics, 21, 30, 2, 3, 0xffffffff);
+        fill_gp_ellipse(graphics, 40, 30, 2, 3, 0xffffffff);
+        draw_gp_arc(graphics, 23, 38, 18, 0xff07131c, 2.2, 5.0, 170.0, true);
+        let _ = GdipDeleteGraphics(graphics);
+    }
+    let mut icon = HICON::default();
+    let status = GdipCreateHICONFromBitmap(bitmap.cast(), &mut icon);
+    let _ = GdipDisposeImage(bitmap.cast());
+    if status.0 == 0 { icon } else { native_icon() }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn fill_gp_ellipse(
+    graphics: *mut windows::Win32::Graphics::GdiPlus::GpGraphics,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    color: u32,
+) {
+    let mut brush = std::ptr::null_mut();
+    if GdipCreateSolidFill(color, &mut brush).0 == 0 {
+        let _ = GdipFillEllipseI(graphics, brush.cast(), x, y, width, height);
+        let _ = GdipDeleteBrush(brush.cast());
+    }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn fill_gp_polygon(
+    graphics: *mut windows::Win32::Graphics::GdiPlus::GpGraphics,
+    points: &[Point],
+    color: u32,
+) {
+    let mut brush = std::ptr::null_mut();
+    if GdipCreateSolidFill(color, &mut brush).0 == 0 {
+        let _ = GdipFillPolygonI(graphics, brush.cast(), points.as_ptr(), points.len() as i32, FillModeWinding);
+        let _ = GdipDeleteBrush(brush.cast());
+    }
 }
 
 fn history_path() -> PathBuf {
@@ -1291,7 +1410,7 @@ unsafe fn bars_glyph(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, baseline: i
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn add_tray(hwnd: HWND) -> windows::core::Result<()> {
-    let icon = native_icon();
+    let icon = tray_icon();
     let mut data = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
@@ -1304,6 +1423,7 @@ unsafe fn add_tray(hwnd: HWND) -> windows::core::Result<()> {
     let tip: Vec<u16> = tray_tip().encode_utf16().collect();
     data.szTip[..tip.len()].copy_from_slice(&tip);
     Shell_NotifyIconW(NIM_ADD, &data).ok()?;
+    let _ = DestroyIcon(icon);
     // Standard hover text is only guaranteed after negotiating the current shell protocol.
     data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
     Shell_NotifyIconW(NIM_SETVERSION, &data).ok()
@@ -1330,11 +1450,13 @@ fn tray_tip() -> String {
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn update_tray(hwnd: HWND) {
+    let icon = tray_icon();
     let mut data = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
         uID: 1,
-        uFlags: NIF_TIP | NIF_SHOWTIP,
+        uFlags: NIF_ICON | NIF_TIP | NIF_SHOWTIP,
+        hIcon: icon,
         ..Default::default()
     };
     let tip: Vec<u16> = tray_tip()
@@ -1343,6 +1465,7 @@ unsafe fn update_tray(hwnd: HWND) {
         .collect();
     data.szTip[..tip.len()].copy_from_slice(&tip);
     let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
+    let _ = DestroyIcon(icon);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
