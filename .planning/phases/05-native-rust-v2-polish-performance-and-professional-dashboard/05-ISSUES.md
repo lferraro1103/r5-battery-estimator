@@ -49,3 +49,4 @@ Verification still required from the user on the live desktop preview because th
 - [x] Fine-tune the top title, ring, duration card, plot offset, and `R5 ULTRA`/mascot spacing.
 - [x] Apply the final four-pixel rightward optical adjustment to the top title and instrument group.
 - [x] Equalize the two top-instrument gaps at 26 px and align the primary title to the history card's content axis.
+- [x] Correct the title to the history card's actual outer border and shift the evenly spaced top instruments five pixels right.
