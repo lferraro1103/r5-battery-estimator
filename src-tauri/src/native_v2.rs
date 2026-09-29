@@ -64,7 +64,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
             let _ = DeleteObject(background.into());
             let header = CreateSolidBrush(COLORREF(0x1D160D)); FillRect(dc, &windows::Win32::Foundation::RECT { left: 0, top: 0, right: 1140, bottom: 50 }, header); let _ = DeleteObject(header.into());
             SetBkMode(dc, TRANSPARENT);
-            let (percent, charging, status) = match BATTERY.get().and_then(|s| s.lock().ok()).map(|s| s.clone()) { Some(ProbeResult::Ok { reading }) => (Some(reading.percent), reading.charging, if reading.charging { "Cargando" } else { "No cargando" }), _ => (None, false, "Sin lectura válida") };
+            let (percent, status) = match BATTERY.get().and_then(|s| s.lock().ok()).map(|s| s.clone()) { Some(ProbeResult::Ok { reading }) => (Some(reading.percent), if reading.charging { "Cargando" } else { "No cargando" }), _ => (None, "Sin lectura válida") };
             let samples = HISTORY.get().and_then(|history| history.lock().ok()).map(|items| items.clone()).unwrap_or_default();
             let learned = learned_hours(&samples);
             draw(dc, "R5 Battery Estimator", 60, 70, 700, 70, 42, 0xF5F5F5, true);
