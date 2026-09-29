@@ -22,3 +22,14 @@ Verification still required from the user on the live desktop preview because th
 - [x] Vertically balance the complete duration-card content group, including title, value, and supporting copy.
 - [x] Use a consistent display type scale for `Aprendiendo` and remaining-autonomy hours.
 - [x] Keep the percentage display field invariant between valid and invalid readings.
+
+## User verification follow-up
+
+| Item | Status before this pass | Resolution |
+| --- | --- | --- |
+| History alignment | Fixed | No change requested. |
+| Duration-card type scale and balance | Fixed | No change requested. |
+| Autonomy glyph alignment | Fixed in this pass | Raised two pixels against the label's optical centre. |
+| Clock glyph | Fixed in this pass | High-quality GDI+ ellipse and pixel-offset mode. |
+| Inner-ring bloom | Fixed in this pass | Stronger real blurred mask; two-ring geometry preserved. |
+| Percentage/status rhythm | Fixed in this pass | Percentage moved down 4 px; status moved up 5 px. |

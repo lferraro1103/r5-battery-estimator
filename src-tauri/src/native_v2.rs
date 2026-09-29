@@ -28,11 +28,11 @@ use windows::{
             GdipCreateBitmapFromScan0, GdipCreateEffect, GdipCreateFromHDC,
             GdipCreateHICONFromBitmap, GdipCreatePen1, GdipCreateLineBrushFromRectI,
             GdipDeleteBrush, GdipDeleteEffect, GdipDeleteGraphics, GdipDeletePen,
-            GdipDisposeImage, GdipDrawArcI, GdipDrawCurve2I, GdipDrawImageRectI, GdipDrawLinesI,
+            GdipDisposeImage, GdipDrawArcI, GdipDrawCurve2I, GdipDrawEllipseI, GdipDrawImageRectI, GdipDrawLinesI,
             GdipFillPolygonI, GdipGetImageGraphicsContext, GdipSetEffectParameters,
-            GdipSetPenEndCap, GdipSetPenStartCap, GdipSetSmoothingMode,
+            GdipSetPenEndCap, GdipSetPenStartCap, GdipSetPixelOffsetMode, GdipSetSmoothingMode,
             FillModeWinding, GdiplusStartup, GdiplusStartupInput, LineCapRound,
-            LinearGradientModeVertical, Point, SmoothingModeAntiAlias, UnitPixel, WrapModeTileFlipX,
+            LinearGradientModeVertical, PixelOffsetModeHighQuality, Point, SmoothingModeAntiAlias, UnitPixel, WrapModeTileFlipX,
         },
         System::LibraryLoader::GetModuleHandleW,
         System::Threading::CreateMutexW,
@@ -374,7 +374,7 @@ unsafe extern "system" fn window_proc(
                 0xBED0E9,
                 false,
             );
-            bars_glyph(dc, 802, 323);
+            bars_glyph(dc, 802, 321);
             draw(
                 dc,
                 "AUTONOMÍA RESTANTE",
@@ -1116,9 +1116,9 @@ unsafe fn ring(
     let (value, value_size) = percent
         .map(|value| (format!("{value}%"), 42))
         .unwrap_or_else(|| ("—%".to_owned(), 38));
-    draw_center(dc, &value, x + 50, y + 98, 205, 62, value_size, 0xF7F9FC, true);
+    draw_center(dc, &value, x + 50, y + 102, 205, 62, value_size, 0xF7F9FC, true);
     battery_glyph(dc, center_x, y + 173, percent.is_some());
-    draw_center(dc, status, x + 48, y + 207, 210, 28, 15, 0xBED0E9, false);
+    draw_center(dc, status, x + 48, y + 202, 210, 28, 15, 0xBED0E9, false);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -1138,12 +1138,12 @@ unsafe fn draw_blurred_arc(
     let mut mask_graphics = std::ptr::null_mut();
     if GdipGetImageGraphicsContext(bitmap.cast(), &mut mask_graphics).0 == 0 {
         let _ = GdipSetSmoothingMode(mask_graphics, SmoothingModeAntiAlias);
-        draw_gp_arc(mask_graphics, left, top, diameter, 0xC02FE189, 18.0, -90.0, sweep.min(359.95), true);
+        draw_gp_arc(mask_graphics, left, top, diameter, 0xE02FE189, 19.0, -90.0, sweep.min(359.95), true);
         let _ = GdipDeleteGraphics(mask_graphics);
     }
     let mut effect = std::ptr::null_mut();
     if GdipCreateEffect(BlurEffectGuid, &mut effect).0 == 0 {
-        let params = BlurParams { radius: 13.0, expandEdge: true.into() };
+        let params = BlurParams { radius: 15.0, expandEdge: true.into() };
         let _ = GdipSetEffectParameters(effect, (&params as *const BlurParams).cast(), size_of::<BlurParams>() as u32);
         let mut roi = windows::Win32::Foundation::RECT { left: 0, top: 0, right: size, bottom: size };
         let _ = GdipBitmapApplyEffect(bitmap, effect, &mut roi, false, std::ptr::null_mut(), std::ptr::null_mut());
@@ -1239,7 +1239,12 @@ unsafe fn clock_glyph(dc: windows::Win32::Graphics::Gdi::HDC, center_x: i32, cen
     let mut graphics = std::ptr::null_mut();
     if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
         let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
-        draw_gp_arc(graphics, center_x - 7, center_y - 7, 14, 0xFFBED0E9, 2.0, -90.0, 359.95, false);
+        let _ = GdipSetPixelOffsetMode(graphics, PixelOffsetModeHighQuality);
+        let mut pen = std::ptr::null_mut();
+        if GdipCreatePen1(0xFFBED0E9, 1.75, UnitPixel, &mut pen).0 == 0 {
+            let _ = GdipDrawEllipseI(graphics, pen, center_x - 7, center_y - 7, 14, 14);
+            let _ = GdipDeletePen(pen);
+        }
         draw_gp_polyline(graphics, &[Point { X: center_x, Y: center_y - 4 }, Point { X: center_x, Y: center_y }, Point { X: center_x + 4, Y: center_y + 2 }], 0xFFBED0E9, 2.0);
         let _ = GdipDeleteGraphics(graphics);
     }
