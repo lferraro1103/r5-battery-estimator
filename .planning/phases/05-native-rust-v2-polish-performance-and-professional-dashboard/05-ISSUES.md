@@ -41,3 +41,4 @@ Verification still required from the user on the live desktop preview because th
 - [x] Remove the white specular line from the approved glow treatment, widen the green halo slightly, and tighten the title-bar title gap again.
 - [x] Replace the pixelated-feeling card type with a cleaner professional family, keeping one coherent hierarchy for `DURACIÓN DE CARGA COMPLETA`, `Se aprende con tu descarga real.`, `AUTONOMÍA RESTANTE`, and `Se recalcula cada 30 segundos.`.
 - [x] Replace the tray art with a battery-state shark face in green, yellow, or red (no battery on its head).
+- [x] Switch the card metadata to a more restrained professional typeface, expose remaining autonomy in the tray hover text, and add `Actualizar ahora` to the tray menu.

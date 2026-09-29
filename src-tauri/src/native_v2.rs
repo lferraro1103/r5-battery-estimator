@@ -220,6 +220,16 @@ unsafe extern "system" fn window_proc(
                 let _ = DestroyWindow(hwnd);
                 LRESULT(0)
             }
+            4 => {
+                if let Some(state) = BATTERY.get() {
+                    let result = probe_once(&R5HidTransport::new());
+                    *state.lock().expect("battery state poisoned") = result.clone();
+                    record_sample(&result);
+                }
+                update_tray(hwnd);
+                let _ = InvalidateRect(Some(hwnd), None, false);
+                LRESULT(0)
+            }
             _ => LRESULT(0),
         },
         WM_CLOSE => {
@@ -455,6 +465,7 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     };
     let _ = AppendMenuW(menu, MF_STRING, 1, w!("Abrir panel"));
     let _ = AppendMenuW(menu, MF_STRING, 2, w!("Actualizar perfil"));
+    let _ = AppendMenuW(menu, MF_STRING, 4, w!("Actualizar ahora"));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, w!(""));
     let _ = AppendMenuW(menu, MF_STRING, 3, w!("Cerrar programa"));
     let mut point = windows::Win32::Foundation::POINT::default();
@@ -546,7 +557,7 @@ unsafe fn draw_card_copy(
         CLIP_DEFAULT_PRECIS,
         ANTIALIASED_QUALITY,
         DEFAULT_PITCH.0 as u32,
-        w!("Segoe UI Variable Text"),
+        w!("Bahnschrift"),
     );
     let old = SelectObject(dc, font.into());
     SetBkMode(dc, TRANSPARENT);
@@ -1430,19 +1441,24 @@ unsafe fn add_tray(hwnd: HWND) -> windows::core::Result<()> {
 }
 
 fn tray_tip() -> String {
+    let learned = HISTORY
+        .get()
+        .and_then(|history| history.lock().ok())
+        .map(|samples| learned_hours(&samples));
     match BATTERY
         .get()
         .and_then(|state| state.lock().ok())
         .map(|state| state.clone())
     {
         Some(ProbeResult::Ok { reading }) => format!(
-            "R5 Battery Estimator — {}% — {}",
+            "R5 Battery Estimator — {}% — {} — Autonomía: {:.0} h",
             reading.percent,
             if reading.charging {
                 "Cargando"
             } else {
                 "No cargando"
-            }
+            },
+            remaining_hours(learned.flatten(), reading.percent),
         ),
         _ => "R5 Battery Estimator — sin lectura válida".to_owned(),
     }
