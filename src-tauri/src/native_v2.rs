@@ -13,39 +13,32 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use windows::{
-    core::w,
+    core::{w, PCWSTR},
     Win32::{
         Foundation::{GetLastError, COLORREF, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM},
-        Graphics::{
-            Gdi::{
-                Arc, BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW,
-                Ellipse, EndPaint, FillRect, GetStockObject, InvalidateRect, LineTo, MoveToEx,
-                RoundRect, SelectObject, SetBkMode, SetTextColor, CLEARTYPE_QUALITY,
+        Graphics::Gdi::{
+            Arc, BeginPaint, CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW,
+            Ellipse, EndPaint, FillRect, GetStockObject, InvalidateRect, LineTo, MoveToEx,
+            RoundRect, SelectObject, SetBkMode, SetTextColor, CLEARTYPE_QUALITY,
                 CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER, DT_LEFT,
-                DT_SINGLELINE, DT_TOP, FW_BOLD, FW_NORMAL, HOLLOW_BRUSH, OUT_DEFAULT_PRECIS,
-                PAINTSTRUCT, PS_SOLID, TRANSPARENT,
-            },
-            GdiPlus::{
-                GdipCreateBitmapFromStream, GdipCreateFromHDC, GdipCreateHICONFromBitmap,
-                GdipDeleteGraphics, GdipDisposeImage, GdipDrawImageRectI, GdipLoadImageFromStream,
-                GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, GpBitmap, GpGraphics,
-                GpImage, Ok as GdiOk,
-            },
+            DT_SINGLELINE, DT_TOP, FW_BOLD, FW_NORMAL, HOLLOW_BRUSH, OUT_DEFAULT_PRECIS,
+            PAINTSTRUCT, PS_SOLID, TRANSPARENT,
         },
         System::LibraryLoader::GetModuleHandleW,
         System::Threading::CreateMutexW,
         UI::{
             Input::KeyboardAndMouse::ReleaseCapture,
             Shell::{
-                SHCreateMemStream, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD,
-                NIM_DELETE, NOTIFYICONDATAW,
+                Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
+                NOTIFYICONDATAW,
             },
             WindowsAndMessaging::{
-                AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
-                DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, LoadCursorW, LoadIconW,
-                PostQuitMessage, RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer,
-                ShowWindow, TrackPopupMenu, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
-                CW_USEDEFAULT, HICON, HTCAPTION, IDC_ARROW, IDI_APPLICATION, MF_SEPARATOR,
+                AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon,
+                DestroyMenu, DestroyWindow, DispatchMessageW, DrawIconEx, GetCursorPos,
+                GetMessageW, LoadCursorW, LoadIconW, LoadImageW, PostQuitMessage, RegisterClassW,
+                SendMessageW, SetForegroundWindow, SetTimer, ShowWindow, TrackPopupMenu,
+                TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, DI_NORMAL, HICON,
+                HTCAPTION, IDC_ARROW, IDI_APPLICATION, IMAGE_ICON, LR_LOADFROMFILE, MF_SEPARATOR,
                 MF_STRING, MSG, SW_HIDE, SW_SHOW, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_COMMAND,
                 WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP,
                 WM_TIMER, WNDCLASSW, WS_POPUP, WS_VISIBLE,
@@ -56,8 +49,6 @@ use windows::{
 
 const CLASS: windows::core::PCWSTR = w!("R5BatteryEstimatorNativeV2");
 const TRAY_MESSAGE: u32 = WM_APP + 17;
-const MASCOT_PNG: &[u8] =
-    include_bytes!(r"..\..\R5BatteryEstimator.Native\Assets\shark-battery.png");
 static BATTERY: OnceLock<Mutex<ProbeResult>> = OnceLock::new();
 static HISTORY: OnceLock<Mutex<Vec<Sample>>> = OnceLock::new();
 
@@ -84,12 +75,6 @@ fn main() -> windows::core::Result<()> {
         if GetLastError() == ERROR_ALREADY_EXISTS {
             return Ok(());
         }
-        let mut gdip_token = 0_usize;
-        let startup = GdiplusStartupInput {
-            GdiplusVersion: 1,
-            ..Default::default()
-        };
-        let _ = GdiplusStartup(&mut gdip_token, &startup, std::ptr::null_mut());
         let initial = probe_once(&R5HidTransport::new());
         let state = BATTERY.get_or_init(|| Mutex::new(initial.clone()));
         HISTORY.get_or_init(|| Mutex::new(load_history()));
@@ -105,6 +90,7 @@ fn main() -> windows::core::Result<()> {
         let cursor = LoadCursorW(None, IDC_ARROW)?;
         let class = WNDCLASSW {
             hCursor: cursor,
+            hIcon: native_icon(),
             hInstance: instance.into(),
             lpszClassName: CLASS,
             style: CS_HREDRAW | CS_VREDRAW,
@@ -134,9 +120,6 @@ fn main() -> windows::core::Result<()> {
             let message = message.assume_init();
             let _ = TranslateMessage(&message);
             DispatchMessageW(&message);
-        }
-        if gdip_token != 0 {
-            GdiplusShutdown(gdip_token);
         }
     }
     Ok(())
@@ -259,10 +242,11 @@ unsafe extern "system" fn window_proc(
                 0xF5F5F5,
                 true,
             );
+            draw_brand_icon(dc, 16, 10, 28);
             draw(
                 dc,
                 "R5 Battery Estimator",
-                64,
+                54,
                 14,
                 320,
                 26,
@@ -284,7 +268,7 @@ unsafe extern "system" fn window_proc(
                 false,
             );
             draw(dc, "R5 ULTRA", 915, 85, 160, 45, 17, 0x5353FF, true);
-            draw_mascot(dc, 1010, 68, 82, 82);
+            draw_brand_icon(dc, 1010, 68, 82);
             card(dc, 390, 265, 350, 230);
             card(dc, 765, 265, 340, 230);
             chart(dc, &samples);
@@ -501,6 +485,11 @@ unsafe fn draw_center(
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn card(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, width: i32, height: i32) {
+    let shadow = CreateSolidBrush(COLORREF(0x080604));
+    let old_shadow = SelectObject(dc, shadow.into());
+    let _ = RoundRect(dc, x + 4, y + 5, x + width + 4, y + height + 5, 18, 18);
+    SelectObject(dc, old_shadow);
+    let _ = DeleteObject(shadow.into());
     let brush = CreateSolidBrush(COLORREF(0x231B10));
     let old = SelectObject(dc, brush.into());
     let _ = RoundRect(dc, x, y, x + width, y + height, 18, 18);
@@ -523,21 +512,21 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
         0xE9C0B0,
         true,
     );
-    draw(dc, "100%", 72, 680, 60, 25, 11, 0xE9C0B0, false);
-    draw(dc, "0%", 96, 810, 40, 25, 11, 0xE9C0B0, false);
-    draw(dc, "24 h", 145, 840, 80, 25, 11, 0xE9C0B0, false);
-    draw(dc, "ahora", 1024, 840, 70, 25, 11, 0xE9C0B0, false);
+    draw(dc, "100%", 72, 655, 60, 25, 11, 0xE9C0B0, false);
+    draw(dc, "0%", 96, 785, 40, 25, 11, 0xE9C0B0, false);
+    draw(dc, "24 h", 145, 815, 80, 25, 11, 0xE9C0B0, false);
+    draw(dc, "ahora", 1022, 815, 46, 25, 11, 0xE9C0B0, false);
     let grid = CreatePen(PS_SOLID, 1, COLORREF(0x564933));
     let old = SelectObject(dc, grid.into());
     for row in 0..4 {
-        let y = 690 + row * 34;
+        let y = 665 + row * 34;
         let _ = MoveToEx(dc, 145, y, None);
         let _ = LineTo(dc, 1068, y);
     }
     for col in 1..4 {
         let x = 145 + col * 231;
-        let _ = MoveToEx(dc, x, 690, None);
-        let _ = LineTo(dc, x, 824);
+        let _ = MoveToEx(dc, x, 665, None);
+        let _ = LineTo(dc, x, 799);
     }
     SelectObject(dc, old);
     let _ = DeleteObject(grid.into());
@@ -554,7 +543,7 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
             let x = 145
                 + (((sample.at.saturating_sub(first.at)) as f64 / (last_at - first.at) as f64)
                     * 923.0) as i32;
-            let y = 824 - sample.percent as i32 * 134 / 100;
+            let y = 799 - sample.percent as i32 * 134 / 100;
             if index == 0 {
                 let _ = MoveToEx(dc, x, y, None);
             } else {
@@ -587,26 +576,39 @@ unsafe fn button(dc: windows::Win32::Graphics::Gdi::HDC) {
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn draw_mascot(
-    dc: windows::Win32::Graphics::Gdi::HDC,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-) {
-    let mut image: *mut GpImage = std::ptr::null_mut();
-    let Some(stream) = SHCreateMemStream(Some(MASCOT_PNG)) else {
-        return;
+unsafe fn draw_brand_icon(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, size: i32) {
+    let icon = native_icon();
+    let _ = DrawIconEx(dc, x, y, icon, size, size, 0, None, DI_NORMAL);
+    let _ = DestroyIcon(icon);
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn native_icon() -> HICON {
+    let fallback =
+        || LoadIconW(None, IDI_APPLICATION).expect("Windows application icon must exist");
+    let Ok(exe) = std::env::current_exe() else {
+        return fallback();
     };
-    if GdipLoadImageFromStream(&stream, &mut image) != GdiOk || image.is_null() {
-        return;
-    }
-    let mut graphics: *mut GpGraphics = std::ptr::null_mut();
-    if GdipCreateFromHDC(dc, &mut graphics) == GdiOk && !graphics.is_null() {
-        let _ = GdipDrawImageRectI(graphics, image, x, y, width, height);
-        let _ = GdipDeleteGraphics(graphics);
-    }
-    let _ = GdipDisposeImage(image);
+    let path = exe
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("r5-battery-estimator.ico");
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    LoadImageW(
+        None,
+        PCWSTR(wide.as_ptr()),
+        IMAGE_ICON,
+        64,
+        64,
+        LR_LOADFROMFILE,
+    )
+    .map(|handle| HICON(handle.0))
+    .unwrap_or_else(|_| fallback())
 }
 
 fn history_path() -> PathBuf {
@@ -833,6 +835,11 @@ unsafe fn ring(
     let radius = (right - left) / 2;
     let hollow = GetStockObject(HOLLOW_BRUSH);
     let old_brush = SelectObject(dc, hollow);
+    let glow = CreatePen(PS_SOLID, 38, COLORREF(0x102619));
+    let old_glow = SelectObject(dc, glow.into());
+    let _ = Ellipse(dc, left, top, right, bottom);
+    SelectObject(dc, old_glow);
+    let _ = DeleteObject(glow.into());
     let pen = CreatePen(PS_SOLID, 20, COLORREF(0x2A3948));
     let old = SelectObject(dc, pen.into());
     let _ = Ellipse(dc, left, top, right, bottom);
@@ -840,6 +847,21 @@ unsafe fn ring(
     let _ = DeleteObject(pen.into());
     if let Some(percent) = percent.filter(|value| *value > 0) {
         let end = -PI / 2.0 + (percent as f64 / 100.0) * PI * 2.0;
+        let aura = CreatePen(PS_SOLID, 34, COLORREF(0x153C28));
+        let old_aura = SelectObject(dc, aura.into());
+        let _ = Arc(
+            dc,
+            left,
+            top,
+            right,
+            bottom,
+            center_x,
+            center_y - radius,
+            center_x + (radius as f64 * end.cos()) as i32,
+            center_y + (radius as f64 * end.sin()) as i32,
+        );
+        SelectObject(dc, old_aura);
+        let _ = DeleteObject(aura.into());
         let green = CreatePen(PS_SOLID, 20, COLORREF(0x87E21A));
         let old = SelectObject(dc, green.into());
         let _ = Arc(
@@ -909,9 +931,7 @@ unsafe fn bars_glyph(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, baseline: i
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn add_tray(hwnd: HWND) -> windows::core::Result<()> {
-    let icon = mascot_icon().unwrap_or_else(|| {
-        LoadIconW(None, IDI_APPLICATION).expect("Windows application icon must exist")
-    });
+    let icon = native_icon();
     let mut data = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
@@ -924,19 +944,6 @@ unsafe fn add_tray(hwnd: HWND) -> windows::core::Result<()> {
     let tip: Vec<u16> = "R5 Battery Estimator V2".encode_utf16().collect();
     data.szTip[..tip.len()].copy_from_slice(&tip);
     Shell_NotifyIconW(NIM_ADD, &data).ok()
-}
-
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn mascot_icon() -> Option<HICON> {
-    let stream = SHCreateMemStream(Some(MASCOT_PNG))?;
-    let mut bitmap: *mut GpBitmap = std::ptr::null_mut();
-    if GdipCreateBitmapFromStream(&stream, &mut bitmap) != GdiOk || bitmap.is_null() {
-        return None;
-    }
-    let mut icon = HICON::default();
-    let success = GdipCreateHICONFromBitmap(bitmap, &mut icon) == GdiOk && !icon.is_invalid();
-    let _ = GdipDisposeImage(bitmap.cast());
-    success.then_some(icon)
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
