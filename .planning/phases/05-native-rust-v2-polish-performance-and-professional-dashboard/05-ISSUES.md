@@ -60,3 +60,4 @@ Verification still required from the user on the live desktop preview because th
 - [x] Open the full tray command menu from both left and right clicks, retaining the explicit `Abrir panel` action.
 - [x] Decode the Shell v4 tray callback event correctly and accept `WM_CONTEXTMENU` for right-click menus.
 - [x] Finalize a console-free native Windows release and portable distribution folder with its approved shark artwork.
+- [x] Embed the approved shark `.ico` in the Windows executable and installer metadata.
