@@ -63,7 +63,7 @@ use windows::{
                 LoadCursorW, LoadIconW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
                 SendMessageW, SetForegroundWindow, ShowWindow, TrackPopupMenu,
                 TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HICON, HTCAPTION,
-                IDC_ARROW, IDI_APPLICATION, MF_SEPARATOR, MF_STRING, MSG, SW_HIDE, SW_SHOW,
+                IDC_ARROW, IDI_APPLICATION, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, SW_HIDE, SW_SHOW,
                 WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY,
                 WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP,
                 WNDCLASSW, WS_POPUP, WS_VISIBLE,
@@ -530,7 +530,7 @@ unsafe fn show_tray_menu(hwnd: HWND) {
         Err(_) => return,
     };
     let _ = AppendMenuW(menu, MF_STRING, 1, w!("Abrir panel"));
-    let _ = AppendMenuW(menu, MF_STRING, 2, w!("Actualizar perfil"));
+    let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, 2, w!("Perfiles: pendiente"));
     let _ = AppendMenuW(menu, MF_STRING, 4, w!("Actualizar ahora"));
     let autostart_label = if autostart_enabled() {
         "Iniciar con Windows: activado"

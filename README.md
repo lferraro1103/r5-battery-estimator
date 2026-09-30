@@ -36,7 +36,7 @@ remaining hours   = current percentage × full-charge hours / 100
 | Telemetry | Rust HID feature-report probe using `hidapi` over Windows `hid.dll`. |
 | Dashboard | Percentage, charge state, color status circle, remaining hours, and full-charge duration. |
 | History | Local 24-hour time-versus-percentage chart. |
-| Tray lifecycle | Close/minimize hides the panel; either tray click exposes Open panel, Update profile, Refresh now, and Exit program. |
+| Tray lifecycle | Close/minimize hides the panel; either tray click exposes Open panel, Profiles: pending (disabled), Refresh now, optional Start with Windows, and Exit program. |
 | Icons | Full-shark application icon and a color-coded shark-face tray icon (green/yellow/red). |
 | Safety | No missing or invalid report is displayed as 0%. |
 
@@ -45,6 +45,8 @@ remaining hours   = current percentage × full-charge hours / 100
 No account, network request, cloud service, analytics, or telemetry upload exists. Fourteen days of observations remain only on the computer at `%LOCALAPPDATA%\R5 Battery Estimator\battery-history.json`.
 
 The current scope is Windows x64 and R5 Ultra 2.4 GHz receivers. Polling rate, Competitive Mode, Motion Sync, sleep settings, and usage pattern affect consumption, so the initial estimate is provisional. Unknown firmware reports fail safely instead of producing invented readings.
+
+Automatic profiles are pending: the validated protocol reads battery only, not polling rate, Competitive Mode, Motion Sync, or sleep timeout. The app currently learns one combined model and does not separate history when settings change. The disabled “Perfiles: pendiente” menu item reflects this limitation; no unvalidated configuration commands are sent.
 
 ### Architecture and build
 
@@ -107,7 +109,7 @@ horas restantes         = porcentaje actual × horas de carga completa / 100
 | Telemetría | Probe Rust de feature reports HID con `hidapi` sobre `hid.dll` de Windows. |
 | Panel | Porcentaje, estado de carga, círculo cromático, horas restantes y duración de carga completa. |
 | Historial | Gráfico local de 24 horas: hora frente a porcentaje. |
-| Ciclo de bandeja | Cerrar/minimizar oculta el panel; ambos clics de bandeja ofrecen Abrir panel, Actualizar perfil, Actualizar ahora y Cerrar programa. |
+| Ciclo de bandeja | Cerrar/minimizar oculta el panel; ambos clics de bandeja ofrecen Abrir panel, Perfiles: pendiente (deshabilitado), Actualizar ahora, Iniciar con Windows opcional y Cerrar programa. |
 | Iconos | Icono de aplicación de tiburón completo y carita de tiburón en bandeja según batería (verde/amarillo/rojo). |
 | Seguridad | Ningún reporte faltante o inválido se muestra como 0%. |
 
@@ -116,6 +118,8 @@ horas restantes         = porcentaje actual × horas de carga completa / 100
 No existe cuenta, solicitud de red, servicio en la nube, analítica ni subida de telemetría. Catorce días de observaciones quedan sólo en el equipo, en `%LOCALAPPDATA%\R5 Battery Estimator\battery-history.json`.
 
 El alcance actual es Windows x64 y receptores R5 Ultra 2.4 GHz. Polling rate, Competitive Mode, Motion Sync, reposo y patrón de uso afectan el consumo; por eso la estimación inicial es provisional. Los reportes de firmware desconocidos fallan de forma segura, sin inventar lecturas.
+
+Los perfiles automáticos están pendientes: el protocolo validado lee solamente batería, no polling rate, Competitive Mode, Motion Sync ni reposo. La app aprende actualmente un único modelo combinado y no separa el historial al cambiar ajustes. El elemento deshabilitado «Perfiles: pendiente» refleja este límite; no se envían comandos de configuración sin validar.
 
 ### Arquitectura y compilación
 
