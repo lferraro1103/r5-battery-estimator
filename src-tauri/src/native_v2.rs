@@ -1,4 +1,7 @@
 //! V2 native Windows shell: no .NET, Chromium, WebView, or local HTTP server.
+// Release builds are ordinary graphical Windows applications, so launching the
+// portable executable never opens a companion console window.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use chrono::DateTime;
 use r5_battery_estimator::{ProbeResult, battery::transport::R5HidTransport, probe_once};

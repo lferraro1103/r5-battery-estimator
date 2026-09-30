@@ -17,7 +17,7 @@ The vendor software exposes mouse settings but does not provide a user-specific 
 ### How it works
 
 1. A Rust probe sends a HID feature-report request to the receiver and validates the returned percentage and charging state.
-2. A native .NET 8 WinForms host renders the dashboard, notification-area menu, chart, and estimate.
+2. A single native Rust/Win32 host renders the dashboard, notification-area menu, chart, and estimate.
 3. Valid observations are stored locally every 30 seconds: timestamp, percentage, and charging state.
 4. The estimator analyzes continuous discharge segments and ignores charging transitions, percentage increases, and gaps longer than ten minutes.
 5. After collecting at least 3% of discharge across 30 minutes or more, it estimates a personalized full-charge duration.
@@ -36,8 +36,8 @@ remaining hours   = current percentage × full-charge hours / 100
 | Telemetry | Rust HID feature-report probe using `hidapi` over Windows `hid.dll`. |
 | Dashboard | Percentage, charge state, color status circle, remaining hours, and full-charge duration. |
 | History | Local 24-hour time-versus-percentage chart. |
-| Tray lifecycle | Close/minimize hides the panel; left-click exposes Open panel, Update profile, and Exit program. |
-| Icons | Separate shark application icon and color-coded battery-and-fin tray icon. |
+| Tray lifecycle | Close/minimize hides the panel; either tray click exposes Open panel, Update profile, Refresh now, and Exit program. |
+| Icons | Full-shark application icon and a color-coded shark-face tray icon (green/yellow/red). |
 | Safety | No missing or invalid report is displayed as 0%. |
 
 ### Privacy, scope, and limitations
@@ -49,19 +49,18 @@ The current scope is Windows x64 and R5 Ultra 2.4 GHz receivers. Polling rate, C
 ### Architecture and build
 
 ```text
-R5 Ultra receiver → Rust / hidapi probe → JSON snapshot → .NET 8 WinForms host
-                                                      ├─ tray and dashboard
-                                                      ├─ local history
-                                                      ├─ runtime estimator
-                                                      └─ 24-hour chart
+R5 Ultra receiver → Rust / hidapi probe → native Rust / Win32 desktop shell
+                                               ├─ tray and dashboard
+                                               ├─ local history
+                                               ├─ runtime estimator
+                                               └─ 24-hour chart
 ```
 
-Requirements: Windows 10/11 x64, .NET 8 Desktop Runtime, Rust, and an R5 Ultra receiver for hardware validation.
+The portable release requires only Windows 10/11 x64 and the R5 Ultra receiver. It is a graphical Windows executable, so it does not open a console window. Rust is needed only to build from source.
 
 ```powershell
-C:\Users\Leaan\.cargo\bin\cargo.exe build --manifest-path src-tauri\Cargo.toml --release --bin r5-battery-probe
-dotnet publish R5BatteryEstimator.Native\R5BatteryEstimator.Native.csproj -c Release -r win-x64 --self-contained false -o outputs\native-winforms
-.\outputs\native-winforms\R5BatteryEstimator.Native.exe
+cargo build --manifest-path src-tauri\Cargo.toml --release --bin r5-battery-estimator-v2
+.\outputs\R5BatteryEstimatorV2\R5BatteryEstimatorV2.exe
 ```
 
 ### Roadmap
@@ -85,7 +84,7 @@ El software oficial expone ajustes del mouse, pero no proporciona una estimació
 ### Cómo funciona
 
 1. Un probe Rust envía una solicitud de *feature report* HID al receptor y valida el porcentaje y estado de carga devueltos.
-2. Un host nativo .NET 8 WinForms renderiza el panel, menú de bandeja, gráfico y estimación.
+2. Un único host nativo Rust/Win32 renderiza el panel, menú de bandeja, gráfico y estimación.
 3. Cada 30 segundos se guardan observaciones válidas de forma local: hora, porcentaje y estado de carga.
 4. El estimador analiza tramos de descarga continua e ignora transiciones de carga, aumentos de porcentaje y cortes de más de diez minutos.
 5. Tras reunir al menos 3% de descarga a lo largo de 30 minutos o más, estima una duración de carga completa personalizada.
@@ -104,8 +103,8 @@ horas restantes         = porcentaje actual × horas de carga completa / 100
 | Telemetría | Probe Rust de feature reports HID con `hidapi` sobre `hid.dll` de Windows. |
 | Panel | Porcentaje, estado de carga, círculo cromático, horas restantes y duración de carga completa. |
 | Historial | Gráfico local de 24 horas: hora frente a porcentaje. |
-| Ciclo de bandeja | Cerrar/minimizar oculta el panel; clic izquierdo ofrece Abrir panel, Actualizar perfil y Cerrar programa. |
-| Iconos | Icono de aplicación de tiburón y un icono de bandeja independiente de batería con aleta y color. |
+| Ciclo de bandeja | Cerrar/minimizar oculta el panel; ambos clics de bandeja ofrecen Abrir panel, Actualizar perfil, Actualizar ahora y Cerrar programa. |
+| Iconos | Icono de aplicación de tiburón completo y carita de tiburón en bandeja según batería (verde/amarillo/rojo). |
 | Seguridad | Ningún reporte faltante o inválido se muestra como 0%. |
 
 ### Privacidad, alcance y límites
@@ -117,19 +116,18 @@ El alcance actual es Windows x64 y receptores R5 Ultra 2.4 GHz. Polling rate, Co
 ### Arquitectura y compilación
 
 ```text
-Receptor R5 Ultra → probe Rust / hidapi → snapshot JSON → host .NET 8 WinForms
-                                                      ├─ bandeja y panel
-                                                      ├─ historial local
-                                                      ├─ estimador de autonomía
-                                                      └─ gráfico de 24 horas
+Receptor R5 Ultra → probe Rust / hidapi → shell de escritorio nativo Rust / Win32
+                                               ├─ bandeja y panel
+                                               ├─ historial local
+                                               ├─ estimador de autonomía
+                                               └─ gráfico de 24 horas
 ```
 
-Requisitos: Windows 10/11 x64, .NET 8 Desktop Runtime, Rust y un R5 Ultra para validar el hardware.
+El release portable solo requiere Windows 10/11 x64 y el receptor R5 Ultra. Es un ejecutable gráfico de Windows, así que no abre una terminal. Rust solo es necesario para compilar desde código fuente.
 
 ```powershell
-C:\Users\Leaan\.cargo\bin\cargo.exe build --manifest-path src-tauri\Cargo.toml --release --bin r5-battery-probe
-dotnet publish R5BatteryEstimator.Native\R5BatteryEstimator.Native.csproj -c Release -r win-x64 --self-contained false -o outputs\native-winforms
-.\outputs\native-winforms\R5BatteryEstimator.Native.exe
+cargo build --manifest-path src-tauri\Cargo.toml --release --bin r5-battery-estimator-v2
+.\outputs\R5BatteryEstimatorV2\R5BatteryEstimatorV2.exe
 ```
 
 ### Roadmap
