@@ -57,3 +57,4 @@ Verification still required from the user on the live desktop preview because th
 - [x] Raise the title/subtitle a further 3 px and every dashboard card plus its content a further 5 px, without moving the product mark.
 - [x] Repeat the vertical rhythm adjustment: title/subtitle +3 px and dashboard cards/content +6 px, product mark unchanged.
 - [x] Move only the battery ring 19 px upward so its exact centre matches the metric-card centres.
+- [x] Open the full tray command menu from both left and right clicks, retaining the explicit `Abrir panel` action.

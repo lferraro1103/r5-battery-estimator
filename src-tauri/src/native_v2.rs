@@ -194,7 +194,7 @@ unsafe extern "system" fn window_proc(
 ) -> LRESULT {
     match message {
         TRAY_MESSAGE if lparam.0 as u32 == WM_LBUTTONUP => {
-            let _ = ShowWindow(hwnd, SW_SHOW);
+            show_tray_menu(hwnd);
             LRESULT(0)
         }
         TRAY_MESSAGE if lparam.0 as u32 == WM_RBUTTONUP => {
