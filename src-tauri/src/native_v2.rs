@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
     fs,
+    io::{self, Write},
     mem::{size_of, MaybeUninit},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{mpsc, Mutex, OnceLock},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -42,6 +43,7 @@ use windows::{
             UnitPixel, WrapModeTileFlipX,
         },
         System::Threading::CreateMutexW,
+        Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH},
         System::{
             LibraryLoader::GetModuleHandleW,
             Registry::{
@@ -162,7 +164,7 @@ const fn rgb(hex: u32) -> COLORREF {
     COLORREF(((hex & 0x0000ff) << 16) | (hex & 0x00ff00) | ((hex & 0xff0000) >> 16))
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Sample {
     at: u64,
     percent: u8,
@@ -1153,7 +1155,7 @@ fn load_history() -> Vec<Sample> {
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
     {
-        return history;
+        return normalize_history(history, now_seconds());
     }
     let legacy_path = history_path().with_file_name("battery-history.json");
     let migrated = fs::read_to_string(legacy_path)
@@ -1172,7 +1174,49 @@ fn load_history() -> Vec<Sample> {
                 })
         })
         .collect::<Vec<_>>();
-    migrated
+    normalize_history(migrated, now_seconds())
+}
+
+fn normalize_history(mut samples: Vec<Sample>, now: u64) -> Vec<Sample> {
+    let cutoff = now.saturating_sub(14 * 24 * 60 * 60);
+    samples.retain(|sample| sample.percent <= 100 && sample.at >= cutoff && sample.at <= now);
+    samples.sort_by_key(|sample| sample.at);
+    // Conflicting duplicate timestamps cannot represent an observed sequence.
+    samples.dedup_by_key(|sample| sample.at);
+    samples
+}
+
+fn replace_history(source: &Path, target: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+    unsafe {
+        MoveFileExW(PCWSTR(source.as_ptr()), PCWSTR(target.as_ptr()), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
+            .map_err(io::Error::other)
+    }
+}
+
+fn save_history_with(
+    path: &Path, samples: &[Sample], replace: impl FnOnce(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let parent = path.parent().ok_or_else(|| io::Error::other("history needs a directory"))?;
+    fs::create_dir_all(parent)?;
+    let temporary = path.with_extension(format!("{}.{}.tmp", std::process::id(), SEQUENCE.fetch_add(1, Ordering::Relaxed)));
+    let result = (|| {
+        let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+        let raw = serde_json::to_vec(samples).map_err(io::Error::other)?;
+        file.write_all(&raw)?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
+        replace(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn record_sample(result: &ProbeResult) {
@@ -1181,10 +1225,7 @@ fn record_sample(result: &ProbeResult) {
     };
     let Some(history) = HISTORY.get() else { return };
     let mut items = history.lock().expect("history poisoned");
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now = now_seconds();
     let sample = Sample {
         at: now,
         percent: reading.percent,
@@ -1198,14 +1239,10 @@ fn record_sample(result: &ProbeResult) {
     } else {
         items.push(sample);
     }
-    let cutoff = now.saturating_sub(14 * 24 * 60 * 60);
-    items.retain(|sample| sample.at >= cutoff);
-    if let Some(parent) = history_path().parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if let Ok(raw) = serde_json::to_string(&*items) {
-        let _ = fs::write(history_path(), raw);
-    }
+    *items = normalize_history(std::mem::take(&mut *items), now);
+    let snapshot = items.clone();
+    drop(items); // Never hold a lock needed by painting during disk I/O.
+    let _ = save_history_with(&history_path(), &snapshot, replace_history);
 }
 
 fn learned_hours(samples: &[Sample]) -> Option<f64> {
@@ -1269,6 +1306,47 @@ mod tests {
         (5..=100).rev().enumerate().map(|(index, percent)| Sample {
             at: at + index as u64 * spacing, percent, charging: false,
         }).collect()
+    }
+
+    #[test]
+    fn loaded_history_repairs_order_duplicates_ranges_and_dates() {
+        let now = 2_000_000;
+        let samples = vec![
+            Sample { at: now, percent: 50, charging: false },
+            Sample { at: now - 30, percent: 51, charging: false },
+            Sample { at: now, percent: 50, charging: false },
+            Sample { at: now + 1, percent: 40, charging: false },
+            Sample { at: now - 60, percent: 101, charging: false },
+            Sample { at: 1, percent: 100, charging: false },
+        ];
+        let repaired = super::normalize_history(samples, now);
+        assert_eq!(repaired.len(), 2);
+        assert_eq!(repaired[0].at, now - 30);
+        assert_eq!(repaired[1].at, now);
+    }
+
+    #[test]
+    fn history_atomic_roundtrip_and_failed_replacement_preserve_previous_file() {
+        let directory = std::env::temp_dir().join(format!("r5-history-test-{}-{}", std::process::id(), super::now_seconds()));
+        let path = directory.join("history.json");
+        let original = cycle(100, 300);
+        super::save_history_with(&path, &original, super::replace_history).unwrap();
+        let raw = std::fs::read(&path).unwrap();
+        let restored: Vec<Sample> = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(restored, original);
+        let next = cycle(30_000, 600);
+        let failed = super::save_history_with(&path, &next, |temporary, _| {
+            let staged: Vec<Sample> = serde_json::from_slice(&std::fs::read(temporary)?).unwrap();
+            assert_eq!(staged, next);
+            Err(std::io::Error::other("injected replacement failure"))
+        });
+        assert!(failed.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), raw);
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        super::save_history_with(&path, &next, super::replace_history).unwrap();
+        assert_eq!(serde_json::from_slice::<Vec<Sample>>(&std::fs::read(&path).unwrap()).unwrap(), next);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(directory).unwrap();
     }
 
     #[test]
