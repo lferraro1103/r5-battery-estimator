@@ -16,6 +16,9 @@ secrets.json
 
 # Build and editor caches
 target/
+outputs/
+work/
+src-tauri/gen/
 dist/
 .vite/
 **/bin/

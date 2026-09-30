@@ -3,14 +3,11 @@ name = "r5-battery-estimator"
 version = "0.1.0"
 description = "Monitor local de batería para Attack Shark R5 Ultra"
 edition = "2024"
+default-run = "r5-battery-estimator-v2"
 
 [lib]
 name = "r5_battery_estimator"
 path = "src/lib.rs"
-
-[[bin]]
-name = "r5-battery-estimator"
-path = "src/main.rs"
 
 [[bin]]
 name = "r5-battery-probe"
@@ -21,7 +18,6 @@ name = "r5-battery-estimator-v2"
 path = "src/native_v2.rs"
 
 [dependencies]
-tauri = { version = "=2.12.0", features = ["tray-icon"] }
 hidapi = { version = "=2.6.7", default-features = false, features = ["windows-native"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
@@ -30,7 +26,7 @@ thiserror = "=2.0.21"
 windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_GdiPlus", "Win32_Security", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
-tauri-build = "=2.7.0"
+winres = "=0.1.12"
 
 [profile.release]
 opt-level = "z"

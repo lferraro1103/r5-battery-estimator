@@ -1,4 +1,4 @@
-# R5 Battery Estimator
+# R5 Battery Estimator V2
 
 Native Windows battery telemetry and runtime estimator for the Attack Shark R5 Ultra.
 
@@ -59,9 +59,13 @@ R5 Ultra receiver → Rust / hidapi probe → native Rust / Win32 desktop shell
 The portable release requires only Windows 10/11 x64 and the R5 Ultra receiver. It is a graphical Windows executable, so it does not open a console window. Rust is needed only to build from source.
 
 ```powershell
-cargo build --manifest-path src-tauri\Cargo.toml --release --bin r5-battery-estimator-v2
-.\outputs\R5BatteryEstimatorV2\R5BatteryEstimatorV2.exe
+cargo build --manifest-path src-tauri\Cargo.toml --release --target x86_64-pc-windows-msvc --bin r5-battery-estimator-v2
+.\src-tauri\target\x86_64-pc-windows-msvc\release\r5-battery-estimator-v2.exe
 ```
+
+Only the native V2 application is maintained in this repository. The former Tauri/React and C# applications have been removed from the current tree; older versions remain available in Git history. `src-tauri` is retained as the Rust directory name for path compatibility, but no Tauri dependency or WebView remains. The `r5-battery-probe` executable is a diagnostic tool, not a second application.
+
+Build prerequisites: Rust as pinned in `rust-toolchain.toml`, Visual Studio C++ Build Tools and the Windows SDK. Brand artwork lives in `assets/shark-battery.png`. When distributing the executable, copy that file to `Assets/shark-battery.png` beside it. To stage a portable build and generate the Inno Setup installer (if Inno Setup 6 is installed), run `powershell -File scripts/package-v2.ps1` from the repository root. The staged application is `outputs/R5BatteryEstimatorV2/R5BatteryEstimatorV2.exe`.
 
 ### Roadmap
 
@@ -126,9 +130,13 @@ Receptor R5 Ultra → probe Rust / hidapi → shell de escritorio nativo Rust / 
 El release portable solo requiere Windows 10/11 x64 y el receptor R5 Ultra. Es un ejecutable gráfico de Windows, así que no abre una terminal. Rust solo es necesario para compilar desde código fuente.
 
 ```powershell
-cargo build --manifest-path src-tauri\Cargo.toml --release --bin r5-battery-estimator-v2
-.\outputs\R5BatteryEstimatorV2\R5BatteryEstimatorV2.exe
+cargo build --manifest-path src-tauri\Cargo.toml --release --target x86_64-pc-windows-msvc --bin r5-battery-estimator-v2
+.\src-tauri\target\x86_64-pc-windows-msvc\release\r5-battery-estimator-v2.exe
 ```
+
+El repositorio mantiene únicamente la aplicación nativa V2. Las aplicaciones anteriores Tauri/React y C# se retiraron del árbol actual; sus versiones siguen recuperables desde el historial Git. `src-tauri` conserva su nombre como carpeta Rust por compatibilidad de rutas, pero ya no hay dependencias Tauri ni WebView. El ejecutable `r5-battery-probe` es una herramienta de diagnóstico, no otra aplicación.
+
+Requisitos para compilar: Rust fijado en `rust-toolchain.toml`, Visual Studio C++ Build Tools y Windows SDK. El arte de marca está en `assets/shark-battery.png`. Para distribuir el ejecutable, copiá ese archivo como `Assets/shark-battery.png` junto a él. Para preparar el portable y generar el instalador Inno Setup (si está instalado Inno Setup 6), ejecutá `powershell -File scripts/package-v2.ps1` desde la raíz del repo. La aplicación preparada queda en `outputs/R5BatteryEstimatorV2/R5BatteryEstimatorV2.exe`.
 
 ### Roadmap
 

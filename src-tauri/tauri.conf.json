@@ -1,9 +1,0 @@
-{
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "R5 Battery Estimator",
-  "version": "0.1.0",
-  "identifier": "com.leaan.r5batteryestimator",
-  "build": { "frontendDist": "../frontend/dist", "devUrl": "http://localhost:5173" },
-  "app": { "windows": [{ "title": "R5 Battery Estimator", "width": 720, "height": 520, "resizable": false }] },
-  "bundle": { "active": false }
-}

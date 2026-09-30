@@ -58,13 +58,13 @@ use windows::{
             WindowsAndMessaging::{
                 AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon,
                 DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
-                LoadCursorW, LoadIconW, PostQuitMessage, RegisterClassW, SendMessageW,
-                SetForegroundWindow, SetTimer, ShowWindow, TrackPopupMenu, TranslateMessage,
-                CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HICON, HTCAPTION, IDC_ARROW,
-                IDI_APPLICATION, MF_SEPARATOR, MF_STRING, MSG, SW_HIDE, SW_SHOW, WINDOW_EX_STYLE,
-                WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONDOWN,
-                WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
-                WS_POPUP, WS_VISIBLE,
+                LoadCursorW, LoadIconW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
+                SendMessageW, SetForegroundWindow, SetTimer, ShowWindow, TrackPopupMenu,
+                TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HICON, HTCAPTION,
+                IDC_ARROW, IDI_APPLICATION, MF_SEPARATOR, MF_STRING, MSG, SW_HIDE, SW_SHOW,
+                WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY,
+                WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP, WM_TIMER,
+                WNDCLASSW, WS_POPUP, WS_VISIBLE,
             },
         },
     },
@@ -81,11 +81,14 @@ const CLOSE: Rect = Rect::new(1084, 0, 56, 44);
 const TRAY_TOGGLE_AUTOSTART: usize = 5;
 static BATTERY: OnceLock<Mutex<ProbeResult>> = OnceLock::new();
 static HISTORY: OnceLock<Mutex<Vec<Sample>>> = OnceLock::new();
+static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
 
 struct BrandImages {
     shark: *mut windows::Win32::Graphics::GdiPlus::GpImage,
 }
-thread_local! { static BRAND_IMAGES: RefCell<Option<BrandImages>> = const { RefCell::new(None) }; }
+thread_local! {
+    static BRAND_IMAGES: RefCell<Option<BrandImages>> = const { RefCell::new(None) };
+}
 
 #[derive(Clone, Copy)]
 struct Rect {
@@ -160,6 +163,8 @@ fn main() -> windows::core::Result<()> {
             lpfnWndProc: Some(window_proc),
             ..Default::default()
         };
+        let taskbar_created = RegisterWindowMessageW(w!("TaskbarCreated"));
+        let _ = TASKBAR_CREATED.set(taskbar_created);
         RegisterClassW(&class);
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
@@ -201,6 +206,12 @@ unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match message {
+        taskbar_created if TASKBAR_CREATED.get().copied() == Some(taskbar_created) => {
+            // Explorer discards its notification-area registrations when the taskbar
+            // is recreated. Re-add the current icon and renegotiate protocol v4.
+            let _ = add_tray(hwnd);
+            LRESULT(0)
+        }
         // NOTIFYICON_VERSION_4 stores the mouse event in the low word and the
         // icon id in the high word.  Right clicks commonly arrive as CONTEXTMENU.
         TRAY_MESSAGE if tray_event(lparam) == WM_LBUTTONUP => {
@@ -892,8 +903,7 @@ fn asset_path(name: &str) -> Option<PathBuf> {
         .and_then(|path| path.parent().map(PathBuf::from));
     let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join("R5BatteryEstimator.Native")
-        .join("Assets")
+        .join("assets")
         .join(name);
     [
         exe_dir.as_ref().map(|dir| dir.join("Assets").join(name)),
@@ -1621,7 +1631,10 @@ unsafe fn add_tray(hwnd: HWND) -> windows::core::Result<()> {
     };
     let tip: Vec<u16> = tray_tip().encode_utf16().collect();
     data.szTip[..tip.len()].copy_from_slice(&tip);
-    Shell_NotifyIconW(NIM_ADD, &data).ok()?;
+    if let Err(error) = Shell_NotifyIconW(NIM_ADD, &data).ok() {
+        let _ = DestroyIcon(icon);
+        return Err(error);
+    }
     let _ = DestroyIcon(icon);
     // Standard hover text is only guaranteed after negotiating the current shell protocol.
     data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
@@ -1668,8 +1681,14 @@ unsafe fn update_tray(hwnd: HWND) {
         .take(data.szTip.len() - 1)
         .collect();
     data.szTip[..tip.len()].copy_from_slice(&tip);
-    let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
-    let _ = DestroyIcon(icon);
+    if Shell_NotifyIconW(NIM_MODIFY, &data).as_bool() {
+        let _ = DestroyIcon(icon);
+    } else {
+        // The shell may have dropped its registration (for example, during an
+        // Explorer restart). NIM_MODIFY cannot recreate a missing notification icon.
+        let _ = DestroyIcon(icon);
+        let _ = add_tray(hwnd);
+    }
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
