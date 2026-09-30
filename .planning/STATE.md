@@ -88,6 +88,7 @@ Recent decisions affecting current work:
 | 260928-g9c | Preparar el proyecto investigado y publicarlo en un repositorio privado de GitHub para continuarlo desde otra computadora | 2026-09-28 | 9e0c4be | [260928-g9c-preparar-el-proyecto-investigado-y-publi](./quick/260928-g9c-preparar-el-proyecto-investigado-y-publi/) |
 | 260930-08z | Agregar un interruptor de inicio automático con Windows al menú de bandeja | 2026-09-30 | db5dbd4 | [260930-08z-autostart-tray-toggle](./quick/260930-08z-autostart-tray-toggle/) |
 | 260930-l27 | Retirar aplicaciones anteriores y mantener solo V2 nativa | 2026-09-30 | 83514c3 | [260930-l27-dejar-solamente-v2-nativa-y-retirar-las-](./quick/260930-l27-dejar-solamente-v2-nativa-y-retirar-las-/) |
+| 260930-nwl | Publicar instalador V2 con tiburón completo en EXE/setup y pantalla GPL v3 | 2026-09-30 | 3e217e3 | [260930-nwl-publicar-instalador-v2-con-iconos-del-ti](./quick/260930-nwl-publicar-instalador-v2-con-iconos-del-ti/) |
 
 ## Deferred Items
 
