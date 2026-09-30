@@ -1209,33 +1209,37 @@ fn record_sample(result: &ProbeResult) {
 }
 
 fn learned_hours(samples: &[Sample]) -> Option<f64> {
-    let start = samples
-        .iter()
-        .position(|sample| sample.percent >= 95 && !sample.charging)?;
-    if !samples[start..]
-        .iter()
-        .any(|sample| sample.percent <= 5 && !sample.charging)
-    {
-        return None;
-    }
+    let mut start: Option<&Sample> = None;
+    let mut previous: Option<&Sample> = None;
     let mut elapsed = 0_u64;
     let mut dropped = 0_u64;
-    for pair in samples[start..].windows(2) {
-        let before = &pair[0];
-        let after = &pair[1];
-        let gap = after.at.saturating_sub(before.at);
-        if before.charging
-            || after.charging
-            || gap == 0
-            || gap > 600
-            || after.percent > before.percent
-        {
+    for sample in samples {
+        let boundary = sample.charging || sample.percent > 100 || previous.is_some_and(|before| {
+            sample.at <= before.at || sample.at - before.at > 600 || sample.percent > before.percent
+        });
+        if boundary {
+            start = None;
+        }
+        if sample.charging || sample.percent > 100 {
+            previous = None;
             continue;
         }
-        elapsed += gap;
-        dropped += (before.percent - after.percent) as u64;
+        if start.is_none() && sample.percent >= 95 {
+            start = Some(sample);
+        }
+        if let Some(full) = start.filter(|_| sample.percent <= 5) {
+            let cycle_elapsed = sample.at - full.at;
+            let cycle_drop = (full.percent - sample.percent) as u64;
+            if cycle_elapsed >= 1800 && cycle_drop >= 90 {
+                elapsed += cycle_elapsed;
+                dropped += cycle_drop;
+            }
+            // Count a completed cycle once, never combine its low tail with another cycle.
+            start = None;
+        }
+        previous = Some(sample);
     }
-    if elapsed < 1800 || dropped < 3 {
+    if dropped == 0 {
         return None;
     }
     Some((100.0 / (dropped as f64 / (elapsed as f64 / 3600.0))).clamp(5.0, 1000.0))
@@ -1259,6 +1263,37 @@ mod tests {
         assert_eq!(next, start + POLL_INTERVAL);
         assert_eq!(advance_deadline(next, start + std::time::Duration::from_secs(10)), next);
         assert_eq!(advance_deadline(next, start + std::time::Duration::from_secs(75)), start + POLL_INTERVAL * 3);
+    }
+
+    fn cycle(at: u64, spacing: u64) -> Vec<Sample> {
+        (5..=100).rev().enumerate().map(|(index, percent)| Sample {
+            at: at + index as u64 * spacing, percent, charging: false,
+        }).collect()
+    }
+
+    #[test]
+    fn recharge_increase_and_gap_each_invalidate_the_entire_partial_cycle() {
+        for boundary in [0, 1, 2] {
+            let mut samples = cycle(0, 300);
+            match boundary {
+                0 => samples[50].charging = true,
+                1 => samples[50].percent = 80,
+                _ => for item in &mut samples[50..] { item.at += 900; },
+            }
+            assert_eq!(learned_hours(&samples), None, "boundary {boundary}");
+        }
+    }
+
+    #[test]
+    fn completed_cycles_are_weighted_without_incomplete_recharge_segments() {
+        let mut samples = cycle(0, 300);
+        samples.push(Sample { at: 28_800, percent: 60, charging: true });
+        let mut incomplete = cycle(29_100, 300);
+        incomplete.truncate(30);
+        samples.extend(incomplete);
+        samples.push(Sample { at: 38_100, percent: 100, charging: true });
+        samples.extend(cycle(38_400, 600));
+        assert!((learned_hours(&samples).unwrap() - 12.5).abs() < 0.001);
     }
 
     #[test]
