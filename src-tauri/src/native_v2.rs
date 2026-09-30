@@ -11,9 +11,9 @@ use std::{
     fs,
     mem::{size_of, MaybeUninit},
     path::PathBuf,
-    sync::{Mutex, OnceLock},
+    sync::{mpsc, Mutex, OnceLock},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use windows::{
     core::{w, PCWSTR},
@@ -58,12 +58,12 @@ use windows::{
             WindowsAndMessaging::{
                 AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon,
                 DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
-                LoadCursorW, LoadIconW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
-                SendMessageW, SetForegroundWindow, SetTimer, ShowWindow, TrackPopupMenu,
+                LoadCursorW, LoadIconW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
+                SendMessageW, SetForegroundWindow, ShowWindow, TrackPopupMenu,
                 TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HICON, HTCAPTION,
                 IDC_ARROW, IDI_APPLICATION, MF_SEPARATOR, MF_STRING, MSG, SW_HIDE, SW_SHOW,
                 WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY,
-                WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP, WM_TIMER,
+                WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP,
                 WNDCLASSW, WS_POPUP, WS_VISIBLE,
             },
         },
@@ -72,6 +72,8 @@ use windows::{
 
 const CLASS: windows::core::PCWSTR = w!("R5BatteryEstimatorNativeV2");
 const TRAY_MESSAGE: u32 = WM_APP + 17;
+const BATTERY_UPDATED: u32 = WM_APP + 18;
+const POLL_INTERVAL: Duration = Duration::from_secs(30);
 const WIDTH: i32 = 1140;
 const HEIGHT: i32 = 916;
 const CHROME_HEIGHT: i32 = 44;
@@ -82,6 +84,55 @@ const TRAY_TOGGLE_AUTOSTART: usize = 5;
 static BATTERY: OnceLock<Mutex<ProbeResult>> = OnceLock::new();
 static HISTORY: OnceLock<Mutex<Vec<Sample>>> = OnceLock::new();
 static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
+static REFRESH_REQUEST: OnceLock<mpsc::SyncSender<()>> = OnceLock::new();
+static LAST_READING: OnceLock<Mutex<Option<u64>>> = OnceLock::new();
+
+fn request_refresh() {
+    if let Some(queue) = REFRESH_REQUEST.get() {
+        // A bounded queue coalesces repeated clicks while a query is in progress.
+        let _ = queue.try_send(());
+    }
+}
+
+fn advance_deadline(mut deadline: Instant, now: Instant) -> Instant {
+    while deadline <= now {
+        deadline += POLL_INTERVAL;
+    }
+    deadline
+}
+
+fn start_worker(hwnd: HWND) {
+    let (sender, requests) = mpsc::sync_channel(1);
+    let _ = REFRESH_REQUEST.set(sender);
+    let window = hwnd.0 as usize;
+    thread::spawn(move || {
+        let transport = R5HidTransport::new();
+        let mut deadline = Instant::now();
+        loop {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            match requests.recv_timeout(wait) {
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            let result = probe_once(&transport);
+            // Clicks arriving during this transaction are satisfied by this reading.
+            while requests.try_recv().is_ok() {}
+            if !matches!(result, ProbeResult::Error { code: "busy", .. }) {
+                record_sample(&result);
+                if matches!(result, ProbeResult::Ok { .. }) {
+                    *LAST_READING.get().unwrap().lock().unwrap() = Some(now_seconds());
+                }
+                *BATTERY.get().unwrap().lock().unwrap() = result;
+                unsafe {
+                    if PostMessageW(Some(HWND(window as *mut _)), BATTERY_UPDATED, WPARAM(0), LPARAM(0)).is_err() {
+                        break;
+                    }
+                }
+            }
+            deadline = advance_deadline(deadline, Instant::now());
+        }
+    });
+}
 
 struct BrandImages {
     shark: *mut windows::Win32::Graphics::GdiPlus::GpImage,
@@ -141,17 +192,11 @@ fn main() -> windows::core::Result<()> {
         if GetLastError() == ERROR_ALREADY_EXISTS {
             return Ok(());
         }
-        let initial = probe_once(&R5HidTransport::new());
-        let state = BATTERY.get_or_init(|| Mutex::new(initial.clone()));
+        BATTERY.get_or_init(|| Mutex::new(ProbeResult::Error {
+            code: "pending", message: "Esperando lectura".to_owned(),
+        }));
+        LAST_READING.get_or_init(|| Mutex::new(None));
         HISTORY.get_or_init(|| Mutex::new(load_history()));
-        record_sample(&initial);
-        let state = state as &'static Mutex<ProbeResult>;
-        thread::spawn(move || loop {
-            thread::sleep(Duration::from_secs(30));
-            let result = probe_once(&R5HidTransport::new());
-            *state.lock().expect("battery state poisoned") = result.clone();
-            record_sample(&result);
-        });
         let instance = GetModuleHandleW(None)?;
         let cursor = LoadCursorW(None, IDC_ARROW)?;
         let class = WNDCLASSW {
@@ -186,7 +231,7 @@ fn main() -> windows::core::Result<()> {
         let _ = SetWindowRgn(hwnd, Some(region), true);
         add_tray(hwnd)?;
         update_tray(hwnd);
-        let _ = SetTimer(Some(hwnd), 1, 30_000, None);
+        start_worker(hwnd);
         let _ = ShowWindow(hwnd, SW_SHOW);
         let mut message = MaybeUninit::<MSG>::zeroed();
         while GetMessageW(message.as_mut_ptr(), None, 0, 0).into() {
@@ -228,13 +273,6 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             2 => {
-                if let Some(state) = BATTERY.get() {
-                    let result = probe_once(&R5HidTransport::new());
-                    *state.lock().expect("battery state poisoned") = result.clone();
-                    record_sample(&result);
-                }
-                update_tray(hwnd);
-                let _ = InvalidateRect(Some(hwnd), None, false);
                 LRESULT(0)
             }
             3 => {
@@ -242,13 +280,7 @@ unsafe extern "system" fn window_proc(
                 LRESULT(0)
             }
             4 => {
-                if let Some(state) = BATTERY.get() {
-                    let result = probe_once(&R5HidTransport::new());
-                    *state.lock().expect("battery state poisoned") = result.clone();
-                    record_sample(&result);
-                }
-                update_tray(hwnd);
-                let _ = InvalidateRect(Some(hwnd), None, false);
+                request_refresh();
                 LRESULT(0)
             }
             TRAY_TOGGLE_AUTOSTART => {
@@ -272,13 +304,7 @@ unsafe extern "system" fn window_proc(
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 release_brand_images();
             } else if REFRESH.contains(x, y) {
-                if let Some(state) = BATTERY.get() {
-                    let result = probe_once(&R5HidTransport::new());
-                    *state.lock().expect("battery state poisoned") = result.clone();
-                    record_sample(&result);
-                }
-                update_tray(hwnd);
-                let _ = InvalidateRect(Some(hwnd), None, false);
+                request_refresh();
             } else if y < CHROME_HEIGHT {
                 let _ = ReleaseCapture();
                 let _ = SendMessageW(
@@ -290,7 +316,7 @@ unsafe extern "system" fn window_proc(
             }
             LRESULT(0)
         }
-        WM_TIMER => {
+        BATTERY_UPDATED => {
             update_tray(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
             LRESULT(0)
@@ -453,7 +479,7 @@ unsafe extern "system" fn window_proc(
             );
             draw(
                 dc,
-                "La app nunca muestra una desconexión como 0%.",
+                &last_reading_label(),
                 55,
                 851,
                 600,
@@ -486,6 +512,13 @@ unsafe extern "system" fn window_proc(
 
 fn tray_event(lparam: LPARAM) -> u32 {
     (lparam.0 as u32) & 0xffff
+}
+
+fn last_reading_label() -> String {
+    LAST_READING.get().and_then(|state| state.lock().ok()).and_then(|at| *at)
+        .and_then(|at| DateTime::from_timestamp(at as i64, 0))
+        .map(|at| format!("Última lectura válida: {} · Sondeo cada 30 s", at.with_timezone(&chrono::Local).format("%H:%M:%S")))
+        .unwrap_or_else(|| "Esperando lectura válida · Sondeo cada 30 s".to_owned())
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -1111,6 +1144,10 @@ fn history_path() -> PathBuf {
         .join("rust-v2-history.json")
 }
 
+fn now_seconds() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+}
+
 fn load_history() -> Vec<Sample> {
     if let Some(history) = fs::read_to_string(history_path())
         .ok()
@@ -1213,7 +1250,16 @@ fn remaining_hours(learned: Option<f64>, percent: u8) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{learned_hours, Sample};
+    use super::{advance_deadline, learned_hours, Sample, POLL_INTERVAL};
+
+    #[test]
+    fn polling_deadline_does_not_add_query_duration_or_manual_refresh() {
+        let start = std::time::Instant::now();
+        let next = advance_deadline(start, start + std::time::Duration::from_secs(2));
+        assert_eq!(next, start + POLL_INTERVAL);
+        assert_eq!(advance_deadline(next, start + std::time::Duration::from_secs(10)), next);
+        assert_eq!(advance_deadline(next, start + std::time::Duration::from_secs(75)), start + POLL_INTERVAL * 3);
+    }
 
     #[test]
     fn does_not_claim_learning_without_a_full_discharge() {
