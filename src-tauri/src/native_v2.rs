@@ -1261,8 +1261,10 @@ fn normalize_history(mut samples: Vec<Sample>, now: u64) -> Vec<Sample> {
     let cutoff = now.saturating_sub(14 * 24 * 60 * 60);
     samples.retain(|sample| sample.percent <= 100 && sample.at >= cutoff && sample.at <= now);
     samples.sort_by_key(|sample| sample.at);
-    // Conflicting duplicate timestamps cannot represent an observed sequence.
-    samples.dedup_by_key(|sample| sample.at);
+    // Stable sorting retains captured order. Remove only identical observations:
+    // conflicting states at the same second must survive so learned_hours sees
+    // their charging/non-increasing-time boundary and rejects a partial cycle.
+    samples.dedup();
     samples
 }
 
@@ -1447,6 +1449,26 @@ mod tests {
         assert_eq!(repaired.len(), 2);
         assert_eq!(repaired[0].at, now - 30);
         assert_eq!(repaired[1].at, now);
+    }
+
+    #[test]
+    fn same_second_transitions_survive_normalization_and_break_learning() {
+        for charging in [false, true] {
+            let mut samples = cycle(100, 300);
+            let index = 50;
+            let original = samples[index].clone();
+            samples.insert(index + 1, Sample {
+                at: original.at,
+                percent: original.percent + u8::from(!charging),
+                charging,
+            });
+            let normalized = super::normalize_history(samples, 40_000);
+            assert_eq!(normalized.len(), 97);
+            assert_eq!(normalized[index], original);
+            assert_eq!(normalized[index + 1].at, original.at);
+            assert_eq!(normalized[index + 1].charging, charging);
+            assert_eq!(learned_hours(&normalized), None);
+        }
     }
 
     #[test]
