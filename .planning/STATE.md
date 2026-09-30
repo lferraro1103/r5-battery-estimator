@@ -4,10 +4,10 @@ current_phase: 5
 current_phase_name: Native Rust V2 polish, performance and professional dashboard
 status: planning
 stopped_at: Phase 5 added for the native V2 refinement cycle
-last_updated: "2026-09-28T15:13:26.296Z"
+last_updated: "2026-09-30T03:13:59.461Z"
 last_activity: 2026-09-28
 last_activity_desc: "Completed quick task 260928-g9c: Preparar el proyecto investigado y publicarlo en un repositorio privado de GitHub para continuarlo desde otra computadora"
-state_head: 2678382e458d16278bcbe5498b35f830e8979308
+state_head: db5dbd4c13cccce7e9cb04d3cb1a328740926c35
 progress:
   total_phases: 5
   completed_phases: 0
@@ -85,6 +85,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260928-g9c | Preparar el proyecto investigado y publicarlo en un repositorio privado de GitHub para continuarlo desde otra computadora | 2026-09-28 | 9e0c4be | [260928-g9c-preparar-el-proyecto-investigado-y-publi](./quick/260928-g9c-preparar-el-proyecto-investigado-y-publi/) |
+| 260930-08z | Agregar un interruptor de inicio automático con Windows al menú de bandeja | 2026-09-30 | db5dbd4 | [260930-08z-autostart-tray-toggle](./quick/260930-08z-autostart-tray-toggle/) |
 
 ## Deferred Items
 

@@ -4,65 +4,70 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use chrono::DateTime;
-use r5_battery_estimator::{ProbeResult, battery::transport::R5HidTransport, probe_once};
+use r5_battery_estimator::{battery::transport::R5HidTransport, probe_once, ProbeResult};
 use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
     fs,
-    mem::{MaybeUninit, size_of},
+    mem::{size_of, MaybeUninit},
     path::PathBuf,
     sync::{Mutex, OnceLock},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use windows::{
+    core::{w, PCWSTR},
     Win32::{
-        Foundation::{COLORREF, ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, WPARAM},
+        Foundation::{GetLastError, COLORREF, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM},
         Graphics::Gdi::{
-            BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreatePen,
-            CreateRoundRectRgn, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
-            DT_LEFT, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, Ellipse, EndPaint,
-            FW_BOLD, FW_NORMAL, FillRect, GetStockObject, HOLLOW_BRUSH, InvalidateRect, LineTo,
-            MoveToEx, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, RoundRect, SelectObject,
-            SetBkMode, SetTextColor, SetWindowRgn, TRANSPARENT,
+            BeginPaint, CreateFontW, CreatePen, CreateRoundRectRgn, CreateSolidBrush, DeleteObject,
+            DrawTextW, Ellipse, EndPaint, FillRect, GetStockObject, InvalidateRect, LineTo,
+            MoveToEx, RoundRect, SelectObject, SetBkMode, SetTextColor, SetWindowRgn,
+            CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
+            DT_LEFT, DT_SINGLELINE, DT_VCENTER, FW_BOLD, FW_NORMAL, HOLLOW_BRUSH,
+            OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, TRANSPARENT,
         },
         Graphics::GdiPlus::{
-            BlurEffectGuid, BlurParams, CompositingQualityHighQuality, GdipBitmapApplyEffect, GdipCreateBitmapFromFile,
-            GdipCreateBitmapFromScan0, GdipCreateEffect, GdipCreateFromHDC,
-            GdipCreateHICONFromBitmap, GdipCreatePen1, GdipCreateLineBrushFromRectI,
-            GdipCreateSolidFill,
-            GdipDeleteBrush, GdipDeleteEffect, GdipDeleteGraphics, GdipDeletePen,
-            GdipDisposeImage, GdipDrawArcI, GdipDrawCurve2I, GdipDrawEllipseI, GdipDrawImageRectI, GdipDrawLinesI,
-            GdipFillEllipseI,
-            GdipFillPolygonI, GdipGetImageGraphicsContext, GdipSetCompositingQuality,
-            GdipSetEffectParameters, GdipSetInterpolationMode, GdipSetPenEndCap,
-            GdipSetPenStartCap, GdipSetPixelOffsetMode, GdipSetSmoothingMode,
-            FillModeWinding, GdiplusStartup, GdiplusStartupInput, InterpolationModeHighQualityBicubic,
-            LineCapRound, LinearGradientModeVertical, PixelOffsetModeHighQuality, Point,
-            SmoothingModeAntiAlias, UnitPixel, WrapModeTileFlipX,
+            BlurEffectGuid, BlurParams, CompositingQualityHighQuality, FillModeWinding,
+            GdipBitmapApplyEffect, GdipCreateBitmapFromFile, GdipCreateBitmapFromScan0,
+            GdipCreateEffect, GdipCreateFromHDC, GdipCreateHICONFromBitmap,
+            GdipCreateLineBrushFromRectI, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush,
+            GdipDeleteEffect, GdipDeleteGraphics, GdipDeletePen, GdipDisposeImage, GdipDrawArcI,
+            GdipDrawCurve2I, GdipDrawEllipseI, GdipDrawImageRectI, GdipDrawLinesI,
+            GdipFillEllipseI, GdipFillPolygonI, GdipGetImageGraphicsContext,
+            GdipSetCompositingQuality, GdipSetEffectParameters, GdipSetInterpolationMode,
+            GdipSetPenEndCap, GdipSetPenStartCap, GdipSetPixelOffsetMode, GdipSetSmoothingMode,
+            GdiplusStartup, GdiplusStartupInput, InterpolationModeHighQualityBicubic, LineCapRound,
+            LinearGradientModeVertical, PixelOffsetModeHighQuality, Point, SmoothingModeAntiAlias,
+            UnitPixel, WrapModeTileFlipX,
         },
-        System::LibraryLoader::GetModuleHandleW,
         System::Threading::CreateMutexW,
+        System::{
+            LibraryLoader::GetModuleHandleW,
+            Registry::{
+                RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ,
+                RRF_RT_REG_SZ,
+            },
+        },
         UI::{
             Input::KeyboardAndMouse::ReleaseCapture,
             Shell::{
-                NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-                NIM_SETVERSION, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
+                Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD,
+                NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
             },
             WindowsAndMessaging::{
-                AppendMenuW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu,
-                CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW,
-                GetCursorPos, GetMessageW, HICON, HTCAPTION, IDC_ARROW, IDI_APPLICATION,
-                DestroyIcon, LoadCursorW, LoadIconW, MF_SEPARATOR, MF_STRING, MSG, PostQuitMessage,
-                RegisterClassW, SW_HIDE, SW_SHOW, SendMessageW, SetForegroundWindow, SetTimer,
-                ShowWindow, TrackPopupMenu, TranslateMessage, WINDOW_EX_STYLE, WM_APP, WM_CLOSE,
-                WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP,
-                WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_POPUP,
-                WS_VISIBLE,
+                AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon,
+                DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
+                LoadCursorW, LoadIconW, PostQuitMessage, RegisterClassW, SendMessageW,
+                SetForegroundWindow, SetTimer, ShowWindow, TrackPopupMenu, TranslateMessage,
+                CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HICON, HTCAPTION, IDC_ARROW,
+                IDI_APPLICATION, MF_SEPARATOR, MF_STRING, MSG, SW_HIDE, SW_SHOW, WINDOW_EX_STYLE,
+                WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONDOWN,
+                WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
+                WS_POPUP, WS_VISIBLE,
             },
         },
     },
-    core::{PCWSTR, w},
 };
 
 const CLASS: windows::core::PCWSTR = w!("R5BatteryEstimatorNativeV2");
@@ -73,6 +78,7 @@ const CHROME_HEIGHT: i32 = 44;
 const REFRESH: Rect = Rect::new(874, 838, 228, 60);
 const MINIMIZE: Rect = Rect::new(1028, 0, 56, 44);
 const CLOSE: Rect = Rect::new(1084, 0, 56, 44);
+const TRAY_TOGGLE_AUTOSTART: usize = 5;
 static BATTERY: OnceLock<Mutex<ProbeResult>> = OnceLock::new();
 static HISTORY: OnceLock<Mutex<Vec<Sample>>> = OnceLock::new();
 
@@ -137,13 +143,11 @@ fn main() -> windows::core::Result<()> {
         HISTORY.get_or_init(|| Mutex::new(load_history()));
         record_sample(&initial);
         let state = state as &'static Mutex<ProbeResult>;
-        thread::spawn(move || {
-            loop {
-                thread::sleep(Duration::from_secs(30));
-                let result = probe_once(&R5HidTransport::new());
-                *state.lock().expect("battery state poisoned") = result.clone();
-                record_sample(&result);
-            }
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_secs(30));
+            let result = probe_once(&R5HidTransport::new());
+            *state.lock().expect("battery state poisoned") = result.clone();
+            record_sample(&result);
         });
         let instance = GetModuleHandleW(None)?;
         let cursor = LoadCursorW(None, IDC_ARROW)?;
@@ -234,6 +238,10 @@ unsafe extern "system" fn window_proc(
                 }
                 update_tray(hwnd);
                 let _ = InvalidateRect(Some(hwnd), None, false);
+                LRESULT(0)
+            }
+            TRAY_TOGGLE_AUTOSTART => {
+                let _ = set_autostart(!autostart_enabled());
                 LRESULT(0)
             }
             _ => LRESULT(0),
@@ -478,6 +486,18 @@ unsafe fn show_tray_menu(hwnd: HWND) {
     let _ = AppendMenuW(menu, MF_STRING, 1, w!("Abrir panel"));
     let _ = AppendMenuW(menu, MF_STRING, 2, w!("Actualizar perfil"));
     let _ = AppendMenuW(menu, MF_STRING, 4, w!("Actualizar ahora"));
+    let autostart_label = if autostart_enabled() {
+        "Iniciar con Windows: activado"
+    } else {
+        "Iniciar con Windows"
+    };
+    let autostart_label: Vec<u16> = autostart_label.encode_utf16().chain(Some(0)).collect();
+    let _ = AppendMenuW(
+        menu,
+        MF_STRING,
+        TRAY_TOGGLE_AUTOSTART,
+        PCWSTR(autostart_label.as_ptr()),
+    );
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, w!(""));
     let _ = AppendMenuW(menu, MF_STRING, 3, w!("Cerrar programa"));
     let mut point = windows::Win32::Foundation::POINT::default();
@@ -486,6 +506,53 @@ unsafe fn show_tray_menu(hwnd: HWND) {
         let _ = TrackPopupMenu(menu, Default::default(), point.x, point.y, None, hwnd, None);
     }
     let _ = DestroyMenu(menu);
+}
+
+/// The tray is always present, so its command is the only place where the
+/// per-user startup preference lives.  This uses the standard HKCU Run entry:
+/// no administrator privileges, service, console process, or scheduled task.
+fn autostart_enabled() -> bool {
+    unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+            w!("R5BatteryEstimator"),
+            RRF_RT_REG_SZ,
+            None,
+            None,
+            None,
+        )
+        .is_ok()
+    }
+}
+
+fn set_autostart(enabled: bool) -> bool {
+    unsafe {
+        if !enabled {
+            return RegDeleteKeyValueW(
+                HKEY_CURRENT_USER,
+                w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+                w!("R5BatteryEstimator"),
+            )
+            .is_ok()
+                || !autostart_enabled();
+        }
+
+        let Ok(executable) = std::env::current_exe() else {
+            return false;
+        };
+        let command = format!("\\\"{}\\\"", executable.display());
+        let wide: Vec<u16> = command.encode_utf16().chain(Some(0)).collect();
+        RegSetKeyValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+            w!("R5BatteryEstimator"),
+            REG_SZ.0,
+            Some(wide.as_ptr().cast()),
+            (wide.len() * size_of::<u16>()) as u32,
+        )
+        .is_ok()
+    }
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -705,22 +772,53 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
         .filter(|sample| sample.at >= start && sample.at <= now)
         .collect();
     if visible.len() >= 2 {
-        let points: Vec<Point> = visible.iter().map(|sample| Point {
-            X: 133 + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0) as i32,
-            Y: 749 - sample.percent as i32 * 134 / 100,
-        }).collect();
+        let points: Vec<Point> = visible
+            .iter()
+            .map(|sample| Point {
+                X: 133
+                    + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0)
+                        as i32,
+                Y: 749 - sample.percent as i32 * 134 / 100,
+            })
+            .collect();
         let mut graphics = std::ptr::null_mut();
         if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
             let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
             // The visual depth belongs exclusively under the data line: a vertical
             // green fade to transparent, not an outline shadow around the series.
             let mut area = points.clone();
-            area.push(Point { X: points.last().expect("points not empty").X, Y: 749 });
-            area.push(Point { X: points[0].X, Y: 749 });
+            area.push(Point {
+                X: points.last().expect("points not empty").X,
+                Y: 749,
+            });
+            area.push(Point {
+                X: points[0].X,
+                Y: 749,
+            });
             let mut brush = std::ptr::null_mut();
-            let gradient_bounds = windows::Win32::Graphics::GdiPlus::Rect { X: 133, Y: 615, Width: 923, Height: 134 };
-            if GdipCreateLineBrushFromRectI(&gradient_bounds, 0x4A2FE189, 0x002FE189, LinearGradientModeVertical, WrapModeTileFlipX, &mut brush).0 == 0 {
-                let _ = GdipFillPolygonI(graphics, brush.cast(), area.as_ptr(), area.len() as i32, FillModeWinding);
+            let gradient_bounds = windows::Win32::Graphics::GdiPlus::Rect {
+                X: 133,
+                Y: 615,
+                Width: 923,
+                Height: 134,
+            };
+            if GdipCreateLineBrushFromRectI(
+                &gradient_bounds,
+                0x4A2FE189,
+                0x002FE189,
+                LinearGradientModeVertical,
+                WrapModeTileFlipX,
+                &mut brush,
+            )
+            .0 == 0
+            {
+                let _ = GdipFillPolygonI(
+                    graphics,
+                    brush.cast(),
+                    area.as_ptr(),
+                    area.len() as i32,
+                    FillModeWinding,
+                );
                 let _ = GdipDeleteBrush(brush.cast());
             }
             draw_gp_curve(graphics, &points, 0xFF2FE189, 3.0);
@@ -841,7 +939,10 @@ unsafe fn draw_brand_image(
                 shark: load_brand_image("shark-battery.png"),
             });
         }
-        let image = images.as_ref().map(|assets| assets.shark).unwrap_or(std::ptr::null_mut());
+        let image = images
+            .as_ref()
+            .map(|assets| assets.shark)
+            .unwrap_or(std::ptr::null_mut());
         if image.is_null() {
             return;
         }
@@ -864,7 +965,9 @@ unsafe fn draw_brand_image(
 unsafe fn release_brand_images() {
     BRAND_IMAGES.with(|images| {
         if let Some(images) = images.borrow_mut().take() {
-            if !images.shark.is_null() { let _ = GdipDisposeImage(images.shark); }
+            if !images.shark.is_null() {
+                let _ = GdipDisposeImage(images.shark);
+            }
         }
     });
 }
@@ -909,9 +1012,33 @@ unsafe fn tray_icon() -> HICON {
     if GdipGetImageGraphicsContext(bitmap.cast(), &mut graphics).0 == 0 {
         let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
         let _ = GdipSetPixelOffsetMode(graphics, PixelOffsetModeHighQuality);
-        fill_gp_polygon(graphics, &[Point { X: 29, Y: 12 }, Point { X: 39, Y: 2 }, Point { X: 42, Y: 21 }], tint);
-        fill_gp_polygon(graphics, &[Point { X: 9, Y: 38 }, Point { X: 1, Y: 47 }, Point { X: 17, Y: 48 }], tint);
-        fill_gp_polygon(graphics, &[Point { X: 55, Y: 38 }, Point { X: 63, Y: 47 }, Point { X: 47, Y: 48 }], tint);
+        fill_gp_polygon(
+            graphics,
+            &[
+                Point { X: 29, Y: 12 },
+                Point { X: 39, Y: 2 },
+                Point { X: 42, Y: 21 },
+            ],
+            tint,
+        );
+        fill_gp_polygon(
+            graphics,
+            &[
+                Point { X: 9, Y: 38 },
+                Point { X: 1, Y: 47 },
+                Point { X: 17, Y: 48 },
+            ],
+            tint,
+        );
+        fill_gp_polygon(
+            graphics,
+            &[
+                Point { X: 55, Y: 38 },
+                Point { X: 63, Y: 47 },
+                Point { X: 47, Y: 48 },
+            ],
+            tint,
+        );
         fill_gp_ellipse(graphics, 7, 14, 50, 43, tint);
         fill_gp_ellipse(graphics, 13, 34, 38, 20, 0xfff5fbff);
         fill_gp_ellipse(graphics, 19, 29, 8, 10, 0xff07131c);
@@ -924,7 +1051,11 @@ unsafe fn tray_icon() -> HICON {
     let mut icon = HICON::default();
     let status = GdipCreateHICONFromBitmap(bitmap.cast(), &mut icon);
     let _ = GdipDisposeImage(bitmap.cast());
-    if status.0 == 0 { icon } else { native_icon() }
+    if status.0 == 0 {
+        icon
+    } else {
+        native_icon()
+    }
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -951,7 +1082,13 @@ unsafe fn fill_gp_polygon(
 ) {
     let mut brush = std::ptr::null_mut();
     if GdipCreateSolidFill(color, &mut brush).0 == 0 {
-        let _ = GdipFillPolygonI(graphics, brush.cast(), points.as_ptr(), points.len() as i32, FillModeWinding);
+        let _ = GdipFillPolygonI(
+            graphics,
+            brush.cast(),
+            points.as_ptr(),
+            points.len() as i32,
+            FillModeWinding,
+        );
         let _ = GdipDeleteBrush(brush.cast());
     }
 }
@@ -1066,7 +1203,7 @@ fn remaining_hours(learned: Option<f64>, percent: u8) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Sample, learned_hours};
+    use super::{learned_hours, Sample};
 
     #[test]
     fn does_not_claim_learning_without_a_full_discharge() {
@@ -1192,8 +1329,20 @@ unsafe fn ring(
     let mut graphics = std::ptr::null_mut();
     if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
         let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
-        draw_gp_arc(graphics, outer_left, outer_top, outer_diameter, 0xff27333e, 3.0, -90.0, 359.95, false);
-        draw_gp_arc(graphics, left, top, diameter, 0xff24323d, 18.0, -90.0, 359.95, true);
+        draw_gp_arc(
+            graphics,
+            outer_left,
+            outer_top,
+            outer_diameter,
+            0xff27333e,
+            3.0,
+            -90.0,
+            359.95,
+            false,
+        );
+        draw_gp_arc(
+            graphics, left, top, diameter, 0xff24323d, 18.0, -90.0, 359.95, true,
+        );
         if let Some(value) = percent.filter(|value| *value > 0) {
             let sweep = value as f32 * 3.6;
             // A raster mask is actually blurred with the GDI+ Blur effect before composition.
@@ -1237,7 +1386,17 @@ unsafe fn ring(
     let (value, value_size) = percent
         .map(|value| (format!("{value}%"), 42))
         .unwrap_or_else(|| ("—%".to_owned(), 38));
-    draw_center(dc, &value, x + 50, y + 102, 205, 62, value_size, 0xF7F9FC, true);
+    draw_center(
+        dc,
+        &value,
+        x + 50,
+        y + 102,
+        205,
+        62,
+        value_size,
+        0xF7F9FC,
+        true,
+    );
     battery_glyph(dc, center_x, y + 173, percent.is_some());
     draw_center(dc, status, x + 48, y + 202, 210, 28, 15, 0xBED0E9, false);
 }
@@ -1255,21 +1414,52 @@ unsafe fn draw_blurred_arc(
 ) {
     const PIXEL_FORMAT_32BPP_ARGB: i32 = 0x0026_200A;
     let mut bitmap = std::ptr::null_mut();
-    if GdipCreateBitmapFromScan0(size, size, 0, PIXEL_FORMAT_32BPP_ARGB, None, &mut bitmap).0 != 0 { return; }
+    if GdipCreateBitmapFromScan0(size, size, 0, PIXEL_FORMAT_32BPP_ARGB, None, &mut bitmap).0 != 0 {
+        return;
+    }
     let mut mask_graphics = std::ptr::null_mut();
     if GdipGetImageGraphicsContext(bitmap.cast(), &mut mask_graphics).0 == 0 {
         let _ = GdipSetSmoothingMode(mask_graphics, SmoothingModeAntiAlias);
         // Render a broad, opaque source then blur it through GDI+.  The result is
         // a true soft-light halo; it stays behind the two physical rings.
-        draw_gp_arc(mask_graphics, left, top, diameter, 0xF43BEE99, 30.0, -90.0, sweep.min(359.95), true);
+        draw_gp_arc(
+            mask_graphics,
+            left,
+            top,
+            diameter,
+            0xF43BEE99,
+            30.0,
+            -90.0,
+            sweep.min(359.95),
+            true,
+        );
         let _ = GdipDeleteGraphics(mask_graphics);
     }
     let mut effect = std::ptr::null_mut();
     if GdipCreateEffect(BlurEffectGuid, &mut effect).0 == 0 {
-        let params = BlurParams { radius: 22.0, expandEdge: true.into() };
-        let _ = GdipSetEffectParameters(effect, (&params as *const BlurParams).cast(), size_of::<BlurParams>() as u32);
-        let mut roi = windows::Win32::Foundation::RECT { left: 0, top: 0, right: size, bottom: size };
-        let _ = GdipBitmapApplyEffect(bitmap, effect, &mut roi, false, std::ptr::null_mut(), std::ptr::null_mut());
+        let params = BlurParams {
+            radius: 22.0,
+            expandEdge: true.into(),
+        };
+        let _ = GdipSetEffectParameters(
+            effect,
+            (&params as *const BlurParams).cast(),
+            size_of::<BlurParams>() as u32,
+        );
+        let mut roi = windows::Win32::Foundation::RECT {
+            left: 0,
+            top: 0,
+            right: size,
+            bottom: size,
+        };
+        let _ = GdipBitmapApplyEffect(
+            bitmap,
+            effect,
+            &mut roi,
+            false,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
         let _ = GdipDeleteEffect(effect);
     }
     let mut target_graphics = std::ptr::null_mut();
@@ -1368,7 +1558,25 @@ unsafe fn clock_glyph(dc: windows::Win32::Graphics::Gdi::HDC, center_x: i32, cen
             let _ = GdipDrawEllipseI(graphics, pen, center_x - 7, center_y - 7, 14, 14);
             let _ = GdipDeletePen(pen);
         }
-        draw_gp_polyline(graphics, &[Point { X: center_x, Y: center_y - 4 }, Point { X: center_x, Y: center_y }, Point { X: center_x + 4, Y: center_y + 2 }], 0xFFBED0E9, 2.0);
+        draw_gp_polyline(
+            graphics,
+            &[
+                Point {
+                    X: center_x,
+                    Y: center_y - 4,
+                },
+                Point {
+                    X: center_x,
+                    Y: center_y,
+                },
+                Point {
+                    X: center_x + 4,
+                    Y: center_y + 2,
+                },
+            ],
+            0xFFBED0E9,
+            2.0,
+        );
         let _ = GdipDeleteGraphics(graphics);
     }
 }
@@ -1379,7 +1587,21 @@ unsafe fn bars_glyph(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, baseline: i
     if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
         let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
         for (offset, height) in [(0, 9), (8, 17), (16, 25)] {
-            draw_gp_polyline(graphics, &[Point { X: x + offset, Y: baseline }, Point { X: x + offset, Y: baseline - height }], 0xFFBED0E9, 3.5);
+            draw_gp_polyline(
+                graphics,
+                &[
+                    Point {
+                        X: x + offset,
+                        Y: baseline,
+                    },
+                    Point {
+                        X: x + offset,
+                        Y: baseline - height,
+                    },
+                ],
+                0xFFBED0E9,
+                3.5,
+            );
         }
         let _ = GdipDeleteGraphics(graphics);
     }
