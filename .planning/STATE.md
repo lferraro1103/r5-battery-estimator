@@ -72,7 +72,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Auditoría de código corregida: ver `05-REVIEW-FIX.md` y `05-REVIEW-VERIFY.md` en fase 05. Pendiente aceptación física: una consulta real devolvió hid_error por reporte no validado/OS error 1; investigar dispositivo/estado del receptor antes de afirmar funcionamiento HID. Validar inicio real de sesión y presentación multi-monitor/DPI.
+- Auditoría de código corregida: ver `05-REVIEW-FIX.md` y `05-REVIEW-VERIFY.md` en fase 05. Lectura HID física recuperada y verificada (cinco lecturas consecutivas de 93%); respuesta A0 pendiente ahora se reconsulta de forma acotada. Reposo de 15 s: conservar únicamente porcentaje anterior marcado sin lectura nueva; validar visualmente reposo/despertar. Ver `.planning/debug/receiver-hid-reading.md`. Validar inicio real de sesión y presentación multi-monitor/DPI.
 - Implementar perfiles automáticos cuando se valide el protocolo de polling rate, Competitive Mode, Motion Sync y reposo. Menú actual declara esa capacidad pendiente; no hay perfiles simulados.
 
 ### Blockers/Concerns

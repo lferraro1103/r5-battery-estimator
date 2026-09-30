@@ -92,6 +92,7 @@ static HISTORY: OnceLock<Mutex<Vec<Sample>>> = OnceLock::new();
 static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
 static REFRESH_REQUEST: OnceLock<mpsc::SyncSender<()>> = OnceLock::new();
 static LAST_READING: OnceLock<Mutex<Option<u64>>> = OnceLock::new();
+static LAST_VALID: OnceLock<Mutex<Option<Sample>>> = OnceLock::new();
 
 fn request_refresh() {
     if let Some(queue) = REFRESH_REQUEST.get() {
@@ -125,8 +126,12 @@ fn start_worker(hwnd: HWND) {
             while requests.try_recv().is_ok() {}
             if !matches!(result, ProbeResult::Error { code: "busy", .. }) {
                 record_sample(&result);
-                if matches!(result, ProbeResult::Ok { .. }) {
-                    *LAST_READING.get().unwrap().lock().unwrap() = Some(now_seconds());
+                if let ProbeResult::Ok { reading } = &result {
+                    let at = now_seconds();
+                    *LAST_READING.get().unwrap().lock().unwrap() = Some(at);
+                    *LAST_VALID.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(Sample {
+                        at, percent: reading.percent, charging: reading.charging,
+                    });
                 }
                 *BATTERY.get().unwrap().lock().unwrap() = result;
                 unsafe {
@@ -376,18 +381,8 @@ unsafe extern "system" fn window_proc(
             );
             let _ = DeleteObject(header.into());
             SetBkMode(dc, TRANSPARENT);
-            let (percent, status) =
-                match BATTERY.get().and_then(|s| s.lock().ok()).map(|s| s.clone()) {
-                    Some(ProbeResult::Ok { reading }) => (
-                        Some(reading.percent),
-                        if reading.charging {
-                            "Cargando"
-                        } else {
-                            "No cargando"
-                        },
-                    ),
-                    _ => (None, "Sin lectura válida"),
-                };
+            let current = BATTERY.get().and_then(|s| s.lock().ok()).map(|s| s.clone());
+            let (percent, status, fresh) = panel_battery(current.as_ref(), last_valid_sample());
             let samples = HISTORY
                 .get()
                 .and_then(|history| history.lock().ok())
@@ -491,7 +486,7 @@ unsafe extern "system" fn window_proc(
             );
             draw(
                 dc,
-                &percent
+                &percent.filter(|_| fresh)
                     .map(|value| format!("~{:.0} h", remaining_hours(learned, value)))
                     .unwrap_or_else(|| "—".to_owned()),
                 763,
@@ -504,7 +499,7 @@ unsafe extern "system" fn window_proc(
             );
             draw(
                 dc,
-                estimate_label(learned),
+                if fresh { estimate_label(learned) } else { "Esperando lectura nueva" },
                 763,
                 390,
                 280,
@@ -585,6 +580,28 @@ unsafe fn fit_window(hwnd: HWND, suggested: Option<RECT>) {
     let x = current.left.clamp(work.left + margin, (work.right - margin - width).max(work.left + margin));
     let y = current.top.clamp(work.top + margin, (work.bottom - margin - height).max(work.top + margin));
     let _ = SetWindowPos(hwnd, None, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+fn last_valid_sample() -> Option<Sample> {
+    LAST_VALID.get().and_then(|state| state.lock().ok()).and_then(|sample| sample.clone())
+}
+
+fn panel_battery(result: Option<&ProbeResult>, last: Option<Sample>) -> (Option<u8>, &'static str, bool) {
+    match result {
+        Some(ProbeResult::Ok { reading }) => (Some(reading.percent),
+            if reading.charging { "Cargando" } else { "No cargando" }, true),
+        Some(ProbeResult::Error { code: "reading_unavailable", .. }) =>
+            (last.map(|sample| sample.percent), "Sin lectura nueva", false),
+        _ => (None, "Sin lectura válida", false),
+    }
+}
+
+fn pending_tip(last: Option<Sample>, now: u64) -> String {
+    match last {
+        Some(sample) => format!("R5 — último {}% · hace {} s · sin lectura nueva; posible reposo · autonomía pendiente",
+            sample.percent, now.saturating_sub(sample.at)),
+        None => "R5 — sin lectura válida; posible reposo · mueve el mouse y actualiza".to_owned(),
+    }
 }
 
 fn last_reading_label() -> String {
@@ -1411,6 +1428,26 @@ mod tests {
     }
 
     #[test]
+    fn sleeping_receiver_preserves_only_explicitly_stale_percentage() {
+        let sample = Sample { at: 100, percent: 93, charging: false };
+        let pending = super::ProbeResult::Error { code: "reading_unavailable", message: String::new() };
+        assert_eq!(super::panel_battery(Some(&pending), Some(sample.clone())),
+            (Some(93), "Sin lectura nueva", false));
+        assert_eq!(super::panel_battery(Some(&pending), None), (None, "Sin lectura nueva", false));
+        let missing = super::ProbeResult::Error { code: "device_unavailable", message: String::new() };
+        assert_eq!(super::panel_battery(Some(&missing), Some(sample.clone())),
+            (None, "Sin lectura válida", false));
+        let tip = super::pending_tip(Some(sample), 130);
+        assert!(tip.contains("último 93%") && tip.contains("hace 30 s") && tip.contains("posible reposo"));
+        assert!(!tip.contains("HID válido") && tip.encode_utf16().count() < 128);
+        let awake = super::ProbeResult::Ok { reading: r5_battery_estimator::battery::protocol::ParsedBattery {
+            percent: 92, charging: false,
+            layout: r5_battery_estimator::battery::protocol::ReportLayout::Shifted,
+        } };
+        assert_eq!(super::panel_battery(Some(&awake), None), (Some(92), "No cargando", true));
+    }
+
+    #[test]
     fn dpi_fit_preserves_aspect_and_click_targets_in_laptop_work_areas() {
         for (dpi, width, height) in [(96, 1342, 704), (144, 1896, 1016), (192, 2536, 1376), (96, 500, 300)] {
             let (fitted_width, fitted_height) = super::fitted_size(dpi, width, height);
@@ -1957,6 +1994,7 @@ fn tray_tip() -> String {
         .map(|state| state.clone())
     {
         Some(ProbeResult::Ok { reading }) => reading_tip(reading.percent, reading.charging, learned.flatten()),
+        Some(ProbeResult::Error { code: "reading_unavailable", .. }) => pending_tip(last_valid_sample(), now_seconds()),
         _ => "R5 Battery Estimator — sin lectura válida".to_owned(),
     }
 }
