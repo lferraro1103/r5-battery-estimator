@@ -587,7 +587,7 @@ fn set_autostart(enabled: bool) -> bool {
         let Ok(executable) = std::env::current_exe() else {
             return false;
         };
-        let command = format!("\\\"{}\\\"", executable.display());
+        let command = autostart_command(&executable);
         let wide: Vec<u16> = command.encode_utf16().chain(Some(0)).collect();
         RegSetKeyValueW(
             HKEY_CURRENT_USER,
@@ -599,6 +599,10 @@ fn set_autostart(enabled: bool) -> bool {
         )
         .is_ok()
     }
+}
+
+fn autostart_command(executable: &Path) -> String {
+    format!("\"{}\"", executable.display())
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -1300,6 +1304,12 @@ mod tests {
         assert_eq!(next, start + POLL_INTERVAL);
         assert_eq!(advance_deadline(next, start + std::time::Duration::from_secs(10)), next);
         assert_eq!(advance_deadline(next, start + std::time::Duration::from_secs(75)), start + POLL_INTERVAL * 3);
+    }
+
+    #[test]
+    fn run_command_quotes_paths_with_spaces_without_literal_escape_characters() {
+        let path = std::path::Path::new(r"C:\Users\User Name\R5 Battery Estimator\R5BatteryEstimatorV2.exe");
+        assert_eq!(super::autostart_command(path), r#""C:\Users\User Name\R5 Battery Estimator\R5BatteryEstimatorV2.exe""#);
     }
 
     fn cycle(at: u64, spacing: u64) -> Vec<Sample> {
