@@ -1,6 +1,7 @@
 [package]
 name = "r5-battery-estimator"
-version = "0.1.0"
+version = "2.0.0"
+license = "GPL-3.0-only"
 description = "Monitor local de batería para Attack Shark R5 Ultra"
 edition = "2024"
 default-run = "r5-battery-estimator-v2"

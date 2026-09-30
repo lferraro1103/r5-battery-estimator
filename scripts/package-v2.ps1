@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 try {
+    & (Join-Path $PSScriptRoot 'build-icon.ps1')
     cargo build --manifest-path src-tauri/Cargo.toml --release --target x86_64-pc-windows-msvc --bin r5-battery-estimator-v2
     if ($LASTEXITCODE -ne 0) { throw 'V2 build failed.' }
     $portableDir = Join-Path $repoRoot 'outputs/R5BatteryEstimatorV2'
