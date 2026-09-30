@@ -6,7 +6,7 @@ status: planning
 stopped_at: Phase 5 added for the native V2 refinement cycle
 last_updated: "2026-09-30T03:13:59.461Z"
 last_activity: 2026-09-30
-last_activity_desc: "Completed quick task 260930-l27: Retirar aplicaciones anteriores y mantener solo V2 nativa"
+last_activity_desc: "V2-only cleanup complete; deep audit recorded: 2 blockers, 8 warnings, 1 coverage note; fixes pending"
 state_head: db5dbd4c13cccce7e9cb04d3cb1a328740926c35
 progress:
   total_phases: 5
@@ -72,7 +72,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+- Corregir los hallazgos de la auditoría V2 en `.planning/phases/05-native-rust-v2-polish-performance-and-professional-dashboard/05-REVIEW.md`: primero canal HID compartido y refresco fuera del hilo UI; después calibración/persistencia/autoinicio, cadencia, documentación, DPI, confianza y perfiles. Auditoría completada; cambios funcionales no ejecutados en la solicitud de revisión.
 
 ### Blockers/Concerns
 
