@@ -19,9 +19,11 @@ use std::{
 use windows::{
     core::{w, PCWSTR},
     Win32::{
-        Foundation::{GetLastError, COLORREF, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM},
+        Foundation::{GetLastError, COLORREF, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, RECT, WPARAM},
         Graphics::Gdi::{
             BeginPaint, CreateFontW, CreatePen, CreateRoundRectRgn, CreateSolidBrush, DeleteObject,
+            CreateCompatibleDC, CreateCompatibleBitmap, DeleteDC, GetMonitorInfoW, MonitorFromWindow,
+            SetStretchBltMode, StretchBlt, HALFTONE, MONITORINFO, MONITOR_DEFAULTTONEAREST, SRCCOPY,
             DrawTextW, Ellipse, EndPaint, FillRect, GetStockObject, InvalidateRect, LineTo,
             MoveToEx, RoundRect, SelectObject, SetBkMode, SetTextColor, SetWindowRgn,
             CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DEFAULT_PITCH, DT_CENTER,
@@ -52,6 +54,7 @@ use windows::{
             },
         },
         UI::{
+            HiDpi::{GetDpiForWindow, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
             Input::KeyboardAndMouse::ReleaseCapture,
             Shell::{
                 Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD,
@@ -59,14 +62,15 @@ use windows::{
             },
             WindowsAndMessaging::{
                 AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon,
-                DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
+                DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, GetClientRect, GetWindowRect,
                 LoadCursorW, LoadIconW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
-                SendMessageW, SetForegroundWindow, ShowWindow, TrackPopupMenu,
+                SendMessageW, SetForegroundWindow, SetWindowPos, ShowWindow, TrackPopupMenu,
                 TranslateMessage, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, HICON, HTCAPTION,
                 IDC_ARROW, IDI_APPLICATION, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, SW_HIDE, SW_SHOW,
                 WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY,
                 WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP,
-                WNDCLASSW, WS_POPUP, WS_VISIBLE,
+                WM_DPICHANGED, WM_DISPLAYCHANGE, WM_EXITSIZEMOVE, WM_SIZE, SWP_NOZORDER, SWP_NOACTIVATE,
+                WNDCLASSW, WS_POPUP,
             },
         },
     },
@@ -183,6 +187,7 @@ struct LegacySample {
 
 fn main() -> windows::core::Result<()> {
     unsafe {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         // GDI+ is used only by the static anti-aliased ring. It never runs in the HID worker.
         let mut gdiplus_token = 0usize;
         let startup = GdiplusStartupInput {
@@ -217,7 +222,7 @@ fn main() -> windows::core::Result<()> {
             WINDOW_EX_STYLE::default(),
             CLASS,
             w!("R5 Battery Estimator"),
-            WS_POPUP | WS_VISIBLE,
+            WS_POPUP,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             WIDTH,
@@ -229,8 +234,7 @@ fn main() -> windows::core::Result<()> {
         )?;
         // A deterministic Win10/11 fallback for the custom borderless shell.
         // Windows takes ownership of this region after SetWindowRgn succeeds.
-        let region = CreateRoundRectRgn(0, 0, WIDTH, HEIGHT, 24, 24);
-        let _ = SetWindowRgn(hwnd, Some(region), true);
+        fit_window(hwnd, None);
         add_tray(hwnd)?;
         update_tray(hwnd);
         start_worker(hwnd);
@@ -296,9 +300,28 @@ unsafe extern "system" fn window_proc(
             release_brand_images();
             LRESULT(0)
         }
+        WM_DPICHANGED => {
+            let suggested = *(lparam.0 as *const RECT);
+            fit_window(hwnd, Some(suggested));
+            LRESULT(0)
+        }
+        WM_DISPLAYCHANGE | WM_EXITSIZEMOVE => {
+            fit_window(hwnd, None);
+            LRESULT(0)
+        }
+        WM_SIZE => {
+            let mut client = RECT::default();
+            let _ = GetClientRect(hwnd, &mut client);
+            let radius = (24.0 * client.right as f64 / WIDTH as f64).round() as i32;
+            let region = CreateRoundRectRgn(0, 0, client.right, client.bottom, radius, radius);
+            if SetWindowRgn(hwnd, Some(region), true) == 0 { let _ = DeleteObject(region.into()); }
+            let _ = InvalidateRect(Some(hwnd), None, false);
+            LRESULT(0)
+        }
         WM_LBUTTONDOWN => {
-            let x = (lparam.0 & 0xffff) as i32;
-            let y = ((lparam.0 >> 16) & 0xffff) as i32;
+            let mut client = RECT::default();
+            let _ = GetClientRect(hwnd, &mut client);
+            let (x, y) = logical_point((lparam.0 as u16) as i16 as i32, ((lparam.0 >> 16) as u16) as i16 as i32, client.right, client.bottom);
             if CLOSE.contains(x, y) {
                 let _ = ShowWindow(hwnd, SW_HIDE);
                 release_brand_images();
@@ -325,9 +348,20 @@ unsafe extern "system" fn window_proc(
         }
         WM_PAINT => {
             let mut paint = PAINTSTRUCT::default();
-            let dc = BeginPaint(hwnd, &mut paint);
+            let target = BeginPaint(hwnd, &mut paint);
+            // Render the original native design as a single layer, then scale all
+            // GDI text, GDI+ art and blur together. Hit tests use the inverse mapping.
+            let dc = CreateCompatibleDC(Some(target));
+            let bitmap = CreateCompatibleBitmap(target, WIDTH, HEIGHT);
+            if dc.0.is_null() || bitmap.0.is_null() {
+                if !bitmap.0.is_null() { let _ = DeleteObject(bitmap.into()); }
+                if !dc.0.is_null() { let _ = DeleteDC(dc); }
+                let _ = EndPaint(hwnd, &paint);
+                return LRESULT(0);
+            }
+            let old_bitmap = SelectObject(dc, bitmap.into());
             let background = CreateSolidBrush(rgb(0x0A1117));
-            FillRect(dc, &paint.rcPaint, background);
+            FillRect(dc, &RECT { left: 0, top: 0, right: WIDTH, bottom: HEIGHT }, background);
             let _ = DeleteObject(background.into());
             let header = CreateSolidBrush(rgb(0x0D161D));
             FillRect(
@@ -499,6 +533,13 @@ unsafe extern "system" fn window_proc(
             SelectObject(dc, old_pen);
             SelectObject(dc, old_brush);
             let _ = DeleteObject(root_border.into());
+            let mut client = RECT::default();
+            let _ = GetClientRect(hwnd, &mut client);
+            SetStretchBltMode(target, HALFTONE);
+            let _ = StretchBlt(target, 0, 0, client.right, client.bottom, Some(dc), 0, 0, WIDTH, HEIGHT, SRCCOPY);
+            SelectObject(dc, old_bitmap);
+            let _ = DeleteObject(bitmap.into());
+            let _ = DeleteDC(dc);
             let _ = EndPaint(hwnd, &paint);
             LRESULT(0)
         }
@@ -514,6 +555,36 @@ unsafe extern "system" fn window_proc(
 
 fn tray_event(lparam: LPARAM) -> u32 {
     (lparam.0 as u32) & 0xffff
+}
+
+fn fitted_size(dpi: u32, available_width: i32, available_height: i32) -> (i32, i32) {
+    let scale = (dpi.max(96) as f64 / 96.0)
+        .min(available_width.max(1) as f64 / WIDTH as f64)
+        .min(available_height.max(1) as f64 / HEIGHT as f64);
+    ((WIDTH as f64 * scale).floor().max(1.0) as i32, (HEIGHT as f64 * scale).floor().max(1.0) as i32)
+}
+
+fn logical_point(x: i32, y: i32, width: i32, height: i32) -> (i32, i32) {
+    ((x as f64 * WIDTH as f64 / width.max(1) as f64).floor() as i32,
+     (y as f64 * HEIGHT as f64 / height.max(1) as f64).floor() as i32)
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn fit_window(hwnd: HWND, suggested: Option<RECT>) {
+    let mut monitor = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+    // Apply the suggested origin first so MonitorFromWindow resolves the new monitor.
+    if let Some(rect) = suggested {
+        let _ = SetWindowPos(hwnd, None, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    if !GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut monitor).as_bool() { return; }
+    let work = monitor.rcWork;
+    let margin = 12;
+    let (width, height) = fitted_size(GetDpiForWindow(hwnd), work.right - work.left - margin * 2, work.bottom - work.top - margin * 2);
+    let mut current = RECT::default();
+    let _ = GetWindowRect(hwnd, &mut current);
+    let x = current.left.clamp(work.left + margin, (work.right - margin - width).max(work.left + margin));
+    let y = current.top.clamp(work.top + margin, (work.bottom - margin - height).max(work.top + margin));
+    let _ = SetWindowPos(hwnd, None, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 fn last_reading_label() -> String {
@@ -1023,8 +1094,13 @@ unsafe fn release_brand_images() {
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn native_icon() -> HICON {
-    let fallback =
-        || LoadIconW(None, IDI_APPLICATION).expect("Windows application icon must exist");
+    let fallback = || {
+        // winres embeds icon id 1; portable runs retain the full shark even if
+        // the adjacent PNG is missing. The Windows icon is the last resort.
+        GetModuleHandleW(None).ok()
+            .and_then(|instance| LoadIconW(Some(instance.into()), PCWSTR(1usize as *const u16)).ok())
+            .unwrap_or_else(|| LoadIconW(None, IDI_APPLICATION).expect("Windows application icon must exist"))
+    };
     let image = load_brand_image("shark-battery.png");
     if !image.is_null() {
         let mut icon = HICON::default();
@@ -1329,6 +1405,24 @@ mod tests {
         let learned = super::reading_tip(78, false, Some(100.0));
         assert!(learned.contains("~78 h") && learned.contains("Aprendida · confianza media"));
         assert!(initial.encode_utf16().count() < 128 && learned.encode_utf16().count() < 128);
+    }
+
+    #[test]
+    fn dpi_fit_preserves_aspect_and_click_targets_in_laptop_work_areas() {
+        for (dpi, width, height) in [(96, 1342, 704), (144, 1896, 1016), (192, 2536, 1376), (96, 500, 300)] {
+            let (fitted_width, fitted_height) = super::fitted_size(dpi, width, height);
+            assert!(fitted_width <= width && fitted_height <= height);
+            let x_scale = fitted_width as f64 / super::WIDTH as f64;
+            let y_scale = fitted_height as f64 / super::HEIGHT as f64;
+            assert!((x_scale - y_scale).abs() < 0.002);
+            for button in [super::REFRESH, super::MINIMIZE, super::CLOSE] {
+                let x = ((button.x + button.w / 2) as f64 * x_scale).round() as i32;
+                let y = ((button.y + button.h / 2) as f64 * y_scale).round() as i32;
+                let logical = super::logical_point(x, y, fitted_width, fitted_height);
+                assert!(button.contains(logical.0, logical.1));
+            }
+            assert!(!super::REFRESH.contains(-1, -1));
+        }
     }
 
     fn cycle(at: u64, spacing: u64) -> Vec<Sample> {
