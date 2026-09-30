@@ -105,7 +105,9 @@ impl R5HidTransport {
             Ok(result) => result,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 // Invalidate this generation so a late result cannot be published.
-                self.generation.fetch_add(1, Ordering::AcqRel);
+                let _ = self.generation.compare_exchange(
+                    generation, generation + 1, Ordering::AcqRel, Ordering::Acquire,
+                );
                 Err(TransportError::Timeout(budget.as_millis() as u64))
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => Err(TransportError::WorkerStopped),
@@ -166,6 +168,7 @@ mod tests {
 
     #[test]
     fn timeout_returns_without_publishing_late_result_or_overlapping() {
+        use super::super::protocol::ReportLayout;
         let transport = R5HidTransport::new();
         let other = R5HidTransport::new();
         assert!(Arc::ptr_eq(&transport.lane_owned, &other.lane_owned));
@@ -174,7 +177,7 @@ mod tests {
         let result = transport.query_work_with_budget(Duration::from_millis(20), move || {
             blocked.recv().unwrap();
             finished.send(()).unwrap();
-            Err(TransportError::Hid("late result must not escape".into()))
+            Ok(ParsedBattery { percent: 99, charging: false, layout: ReportLayout::Normal })
         });
         assert_eq!(result, Err(TransportError::Timeout(20)));
         assert_eq!(other.query_work_with_budget(Duration::from_secs(1), || panic!("overlap")), Err(TransportError::Busy));
@@ -185,7 +188,8 @@ mod tests {
             assert!(std::time::Instant::now() < deadline);
             thread::yield_now();
         }
-        assert_eq!(other.query_work_with_budget(Duration::from_secs(1), || Err(TransportError::DeviceUnavailable)), Err(TransportError::DeviceUnavailable));
+        let next = ParsedBattery { percent: 42, charging: true, layout: ReportLayout::Shifted };
+        assert_eq!(other.query_work_with_budget(Duration::from_secs(1), move || Ok(next)), Ok(next), "next request gets its own reading, never the late 99% result");
         assert_eq!(result, Err(TransportError::Timeout(20)), "late completion never replaces timed-out result");
     }
 }
