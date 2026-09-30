@@ -53,8 +53,9 @@ use windows::{
                 DestroyIcon, LoadCursorW, LoadIconW, MF_SEPARATOR, MF_STRING, MSG, PostQuitMessage,
                 RegisterClassW, SW_HIDE, SW_SHOW, SendMessageW, SetForegroundWindow, SetTimer,
                 ShowWindow, TrackPopupMenu, TranslateMessage, WINDOW_EX_STYLE, WM_APP, WM_CLOSE,
-                WM_COMMAND, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_NCLBUTTONDOWN, WM_PAINT,
-                WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_POPUP, WS_VISIBLE,
+                WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONDOWN, WM_LBUTTONUP,
+                WM_NCLBUTTONDOWN, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_POPUP,
+                WS_VISIBLE,
             },
         },
     },
@@ -193,11 +194,13 @@ unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match message {
-        TRAY_MESSAGE if lparam.0 as u32 == WM_LBUTTONUP => {
+        // NOTIFYICON_VERSION_4 stores the mouse event in the low word and the
+        // icon id in the high word.  Right clicks commonly arrive as CONTEXTMENU.
+        TRAY_MESSAGE if tray_event(lparam) == WM_LBUTTONUP => {
             show_tray_menu(hwnd);
             LRESULT(0)
         }
-        TRAY_MESSAGE if lparam.0 as u32 == WM_RBUTTONUP => {
+        TRAY_MESSAGE if matches!(tray_event(lparam), WM_RBUTTONUP | WM_CONTEXTMENU) => {
             show_tray_menu(hwnd);
             LRESULT(0)
         }
@@ -457,6 +460,10 @@ unsafe extern "system" fn window_proc(
         }
         _ => DefWindowProcW(hwnd, message, wparam, lparam),
     }
+}
+
+fn tray_event(lparam: LPARAM) -> u32 {
+    (lparam.0 as u32) & 0xffff
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]

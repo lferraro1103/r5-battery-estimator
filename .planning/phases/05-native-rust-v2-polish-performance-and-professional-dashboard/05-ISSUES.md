@@ -58,3 +58,4 @@ Verification still required from the user on the live desktop preview because th
 - [x] Repeat the vertical rhythm adjustment: title/subtitle +3 px and dashboard cards/content +6 px, product mark unchanged.
 - [x] Move only the battery ring 19 px upward so its exact centre matches the metric-card centres.
 - [x] Open the full tray command menu from both left and right clicks, retaining the explicit `Abrir panel` action.
+- [x] Decode the Shell v4 tray callback event correctly and accept `WM_CONTEXTMENU` for right-click menus.
