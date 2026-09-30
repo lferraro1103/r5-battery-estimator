@@ -353,7 +353,7 @@ unsafe extern "system" fn window_proc(
             chart(dc, &samples);
             button(dc);
             // The actual outer ring begins at x + 14, matching the graph border x = 38.
-            ring(dc, 24, 201, 305, percent, status);
+            ring(dc, 24, 182, 305, percent, status);
             clock_glyph(dc, 384, 265);
             draw(
                 dc,
