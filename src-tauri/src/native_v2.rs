@@ -434,7 +434,7 @@ unsafe extern "system" fn window_proc(
             );
             draw(
                 dc,
-                "Se aprende con tu descarga real.",
+                if learned.is_some() { "Ciclos completos · confianza media" } else { "Sin ciclo completo · confianza baja" },
                 375,
                 390,
                 290,
@@ -458,7 +458,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 &percent
-                    .map(|value| format!("{:.0} h", remaining_hours(learned, value)))
+                    .map(|value| format!("~{:.0} h", remaining_hours(learned, value)))
                     .unwrap_or_else(|| "—".to_owned()),
                 763,
                 300,
@@ -470,7 +470,7 @@ unsafe extern "system" fn window_proc(
             );
             draw(
                 dc,
-                "Se recalcula cada 30 segundos.",
+                estimate_label(learned),
                 763,
                 390,
                 280,
@@ -1293,6 +1293,16 @@ fn remaining_hours(learned: Option<f64>, percent: u8) -> f64 {
     learned.unwrap_or(200.0) * percent as f64 / 100.0
 }
 
+fn estimate_label(learned: Option<f64>) -> &'static str {
+    if learned.is_some() { "Aprendida · confianza media" } else { "Estimación inicial · confianza baja" }
+}
+
+fn reading_tip(percent: u8, charging: bool, learned: Option<f64>) -> String {
+    format!("R5 — {percent}% · {} · HID válido · ~{:.0} h · {}",
+        if charging { "Cargando" } else { "No cargando" },
+        remaining_hours(learned, percent), estimate_label(learned))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{advance_deadline, learned_hours, Sample, POLL_INTERVAL};
@@ -1310,6 +1320,15 @@ mod tests {
     fn run_command_quotes_paths_with_spaces_without_literal_escape_characters() {
         let path = std::path::Path::new(r"C:\Users\User Name\R5 Battery Estimator\R5BatteryEstimatorV2.exe");
         assert_eq!(super::autostart_command(path), r#""C:\Users\User Name\R5 Battery Estimator\R5BatteryEstimatorV2.exe""#);
+    }
+
+    #[test]
+    fn tooltip_distinguishes_valid_telemetry_from_provisional_and_learned_estimates() {
+        let initial = super::reading_tip(78, false, None);
+        assert!(initial.contains("HID válido") && initial.contains("~156 h") && initial.contains("inicial · confianza baja"));
+        let learned = super::reading_tip(78, false, Some(100.0));
+        assert!(learned.contains("~78 h") && learned.contains("Aprendida · confianza media"));
+        assert!(initial.encode_utf16().count() < 128 && learned.encode_utf16().count() < 128);
     }
 
     fn cycle(at: u64, spacing: u64) -> Vec<Sample> {
@@ -1820,16 +1839,7 @@ fn tray_tip() -> String {
         .and_then(|state| state.lock().ok())
         .map(|state| state.clone())
     {
-        Some(ProbeResult::Ok { reading }) => format!(
-            "R5 Battery Estimator — {}% — {} — Autonomía: {:.0} h",
-            reading.percent,
-            if reading.charging {
-                "Cargando"
-            } else {
-                "No cargando"
-            },
-            remaining_hours(learned.flatten(), reading.percent),
-        ),
+        Some(ProbeResult::Ok { reading }) => reading_tip(reading.percent, reading.charging, learned.flatten()),
         _ => "R5 Battery Estimator — sin lectura válida".to_owned(),
     }
 }
