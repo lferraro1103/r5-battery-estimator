@@ -3,11 +3,11 @@ gsd_state_version: "1.0"
 current_phase: 5
 current_phase_name: Native Rust V2 polish, performance and professional dashboard
 status: planning
-stopped_at: Phase 5 added for the native V2 refinement cycle
-last_updated: "2026-09-30T03:13:59.461Z"
+stopped_at: Audit code fixes integrated and independently reviewed; hardware acceptance pending
+last_updated: "2026-09-30"
 last_activity: 2026-09-30
-last_activity_desc: "V2-only cleanup complete; deep audit recorded: 2 blockers, 8 warnings, 1 coverage note; fixes pending"
-state_head: db5dbd4c13cccce7e9cb04d3cb1a328740926c35
+last_activity_desc: "Audit code fixes complete; independent review clean; 16 tests pass; portable and installer rebuilt; physical HID query failed validation"
+state_head: 0d84ff2905e820d6a8e407036076da96b58d89ed
 progress:
   total_phases: 5
   completed_phases: 0
@@ -72,7 +72,8 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- Corregir los hallazgos de la auditoría V2 en `.planning/phases/05-native-rust-v2-polish-performance-and-professional-dashboard/05-REVIEW.md`: primero canal HID compartido y refresco fuera del hilo UI; después calibración/persistencia/autoinicio, cadencia, documentación, DPI, confianza y perfiles. Auditoría completada; cambios funcionales no ejecutados en la solicitud de revisión.
+- Auditoría de código corregida: ver `05-REVIEW-FIX.md` y `05-REVIEW-VERIFY.md` en fase 05. Pendiente aceptación física: una consulta real devolvió hid_error por reporte no validado/OS error 1; investigar dispositivo/estado del receptor antes de afirmar funcionamiento HID. Validar inicio real de sesión y presentación multi-monitor/DPI.
+- Implementar perfiles automáticos cuando se valide el protocolo de polling rate, Competitive Mode, Motion Sync y reposo. Menú actual declara esa capacidad pendiente; no hay perfiles simulados.
 
 ### Blockers/Concerns
 
