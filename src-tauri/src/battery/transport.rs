@@ -1,6 +1,7 @@
 use std::{
     sync::{
         Arc,
+        OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
@@ -39,10 +40,28 @@ pub trait HidTransport: Send + Sync {
     fn query(&self) -> Result<ParsedBattery, TransportError>;
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct R5HidTransport {
     lane_owned: Arc<AtomicBool>,
     generation: Arc<AtomicU64>,
+}
+
+impl Default for R5HidTransport {
+    fn default() -> Self {
+        // All independently constructed transports also share the process lane.
+        static SHARED: OnceLock<R5HidTransport> = OnceLock::new();
+        SHARED.get_or_init(|| Self {
+            lane_owned: Arc::new(AtomicBool::new(false)),
+            generation: Arc::new(AtomicU64::new(0)),
+        }).clone()
+    }
+}
+
+struct LaneLease(Arc<AtomicBool>);
+impl Drop for LaneLease {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 impl R5HidTransport {
@@ -55,6 +74,11 @@ impl R5HidTransport {
     }
 
     pub fn query_with_budget(&self, budget: Duration) -> Result<ParsedBattery, TransportError> {
+        self.query_work_with_budget(budget, query_device_once)
+    }
+
+    fn query_work_with_budget<F>(&self, budget: Duration, work: F) -> Result<ParsedBattery, TransportError>
+    where F: FnOnce() -> Result<ParsedBattery, TransportError> + Send + 'static {
         if self
             .lane_owned
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -69,11 +93,12 @@ impl R5HidTransport {
         let (sender, receiver) = mpsc::sync_channel(1);
 
         thread::spawn(move || {
-            let result = query_device_once();
-            lane_owned.store(false, Ordering::Release);
+            let lease = LaneLease(lane_owned);
+            let result = work();
             if current_generation.load(Ordering::Acquire) == generation {
                 let _ = sender.send(result);
             }
+            drop(lease);
         });
 
         match receiver.recv_timeout(budget) {
@@ -142,9 +167,26 @@ mod tests {
     #[test]
     fn timeout_returns_without_publishing_late_result_or_overlapping() {
         let transport = R5HidTransport::new();
-        transport.lane_owned.store(true, Ordering::Release);
-        assert_eq!(transport.query(), Err(TransportError::Busy));
-        transport.lane_owned.store(false, Ordering::Release);
+        let other = R5HidTransport::new();
+        assert!(Arc::ptr_eq(&transport.lane_owned, &other.lane_owned));
+        let (release, blocked) = mpsc::channel();
+        let (finished, done) = mpsc::channel();
+        let result = transport.query_work_with_budget(Duration::from_millis(20), move || {
+            blocked.recv().unwrap();
+            finished.send(()).unwrap();
+            Err(TransportError::Hid("late result must not escape".into()))
+        });
+        assert_eq!(result, Err(TransportError::Timeout(20)));
+        assert_eq!(other.query_work_with_budget(Duration::from_secs(1), || panic!("overlap")), Err(TransportError::Busy));
+        release.send(()).unwrap();
+        done.recv_timeout(Duration::from_secs(1)).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while transport.lane_owned.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < deadline);
+            thread::yield_now();
+        }
+        assert_eq!(other.query_work_with_budget(Duration::from_secs(1), || Err(TransportError::DeviceUnavailable)), Err(TransportError::DeviceUnavailable));
+        assert_eq!(result, Err(TransportError::Timeout(20)), "late completion never replaces timed-out result");
     }
 }
 
