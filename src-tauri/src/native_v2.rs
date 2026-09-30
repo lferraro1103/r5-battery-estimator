@@ -1313,7 +1313,8 @@ fn record_sample(result: &ProbeResult) {
     };
     if let Some(last) = items
         .last_mut()
-        .filter(|last| now.saturating_sub(last.at) < 15)
+        .filter(|last| now.saturating_sub(last.at) < 15
+            && last.percent == sample.percent && last.charging == sample.charging)
     {
         *last = sample;
     } else {
