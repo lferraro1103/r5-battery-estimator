@@ -19,11 +19,15 @@ use super::protocol::{
 
 pub const DEVICE_SETTLE_DELAY: Duration = Duration::from_millis(120);
 pub const RESPONSE_BUDGET: Duration = Duration::from_secs(2);
+// 12 reads at 120ms leave room inside the 2s caller budget for enumeration/I/O.
+const MAX_RESPONSE_READS: usize = 12;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TransportError {
     #[error("R5 Ultra vendor HID interface is not present")]
     DeviceUnavailable,
+    #[error("receiver is present but the mouse battery reading is not ready")]
+    ReadingUnavailable,
     #[error("another feature transaction still owns the HID lane")]
     Busy,
     #[error("feature transaction exceeded its {0} ms response budget")]
@@ -145,16 +149,21 @@ fn query_device_once() -> Result<ParsedBattery, TransportError> {
             device
                 .send_feature_report(&BATTERY_REQUEST)
                 .map_err(|error| TransportError::Hid(error.to_string()))?;
-            thread::sleep(DEVICE_SETTLE_DELAY);
-            let mut response = [0_u8; REPORT_LENGTH];
-            let received = device
-                .get_feature_report(&mut response)
-                .map_err(|error| TransportError::Hid(error.to_string()))?;
-            parse_battery_report(&response[..received]).map_err(TransportError::from)
+            read_battery_response(|| {
+                let mut response = [0_u8; REPORT_LENGTH];
+                let received = device.get_feature_report(&mut response)
+                    .map_err(|error| TransportError::Hid(error.to_string()))?;
+                Ok((response, received))
+            }, thread::sleep)
         })();
 
         match attempt {
             Ok(reading) => return Ok(reading),
+            // A responding feature interface owns this reply. Trying unrelated
+            // vendor collections only hides pending/protocol state in HID errors.
+            Err(error @ (TransportError::ReadingUnavailable | TransportError::Protocol(_))) => {
+                return Err(error);
+            }
             Err(error) => errors.push(error.to_string()),
         }
     }
@@ -162,9 +171,84 @@ fn query_device_once() -> Result<ParsedBattery, TransportError> {
     Err(TransportError::Hid(errors.join("; ")))
 }
 
+fn read_battery_response<F, W>(mut read: F, mut wait: W) -> Result<ParsedBattery, TransportError>
+where
+    F: FnMut() -> Result<([u8; REPORT_LENGTH], usize), TransportError>,
+    W: FnMut(Duration),
+{
+    // Match the official retrySetGet path for A0: reread the same request,
+    // without resending it or ever publishing the unvalidated zero payload.
+    for _ in 0..MAX_RESPONSE_READS {
+        wait(DEVICE_SETTLE_DELAY);
+        let (response, received) = read()?;
+        match parse_battery_report(&response[..received]) {
+            Err(ProtocolError::Pending) => continue,
+            result => return result.map_err(TransportError::from),
+        }
+    }
+    Err(TransportError::ReadingUnavailable)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn frame(status: u8, percent: u8) -> ([u8; REPORT_LENGTH], usize) {
+        let mut response = BATTERY_REQUEST;
+        response[1] = status;
+        response[8] = percent;
+        (response, REPORT_LENGTH)
+    }
+
+    #[test]
+    fn pending_response_is_reread_until_validated_battery_arrives() {
+        let mut reads = 0;
+        let result = read_battery_response(|| {
+            reads += 1;
+            Ok(frame(if reads == 1 { 0xa0 } else { 0xa1 }, if reads == 1 { 0 } else { 92 }))
+        }, |_| {});
+        assert_eq!(result.unwrap().percent, 92);
+        assert_eq!(reads, 2);
+    }
+
+    #[test]
+    fn pending_exhaustion_is_unavailable_never_zero_and_within_budget() {
+        let mut reads = 0;
+        let mut waited = Duration::ZERO;
+        let result = read_battery_response(|| {
+            reads += 1;
+            Ok(frame(0xa0, 0))
+        }, |delay| waited += delay);
+        assert_eq!(result, Err(TransportError::ReadingUnavailable));
+        assert_eq!(reads, MAX_RESPONSE_READS);
+        assert!(waited < RESPONSE_BUDGET);
+    }
+
+    #[test]
+    fn accepts_last_allowed_reply_and_valid_zero_without_retry() {
+        for (pending_reads, percent) in [(0, 0), (MAX_RESPONSE_READS - 1, 100)] {
+            let mut reads = 0;
+            let result = read_battery_response(|| {
+                reads += 1;
+                Ok(frame(if reads <= pending_reads { 0xa0 } else { 0xa1 }, percent))
+            }, |_| {});
+            assert_eq!(result.unwrap().percent, percent);
+            assert_eq!(reads, pending_reads + 1);
+        }
+    }
+
+    #[test]
+    fn malformed_reply_and_io_error_are_not_retried() {
+        let mut reads = 0;
+        let result = read_battery_response(|| {
+            reads += 1;
+            Ok(frame(0xa2, 0))
+        }, |_| {});
+        assert_eq!(result, Err(TransportError::Protocol(ProtocolError::MarkerMismatch)));
+        assert_eq!(reads, 1);
+        assert_eq!(read_battery_response(|| Err(TransportError::Hid("I/O".into())), |_| {}),
+            Err(TransportError::Hid("I/O".into())));
+    }
 
     #[test]
     fn timeout_returns_without_publishing_late_result_or_overlapping() {

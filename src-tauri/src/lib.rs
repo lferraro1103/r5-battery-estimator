@@ -16,6 +16,7 @@ pub fn probe_once(transport: &dyn HidTransport) -> ProbeResult {
         Err(error) => ProbeResult::Error {
             code: match error {
                 battery::transport::TransportError::DeviceUnavailable => "device_unavailable",
+                battery::transport::TransportError::ReadingUnavailable => "reading_unavailable",
                 battery::transport::TransportError::Busy => "busy",
                 battery::transport::TransportError::Timeout(_) => "timeout",
                 battery::transport::TransportError::Protocol(_) => "malformed_report",

@@ -30,6 +30,8 @@ pub struct ParsedBattery {
 pub enum ProtocolError {
     #[error("battery report is truncated: expected at least 9 bytes, got {0}")]
     Truncated(usize),
+    #[error("receiver has not completed the battery query")]
+    Pending,
     #[error("battery report markers do not match a validated R5 layout")]
     MarkerMismatch,
     #[error("battery percentage is outside 0..=100: {0}")]
@@ -39,6 +41,12 @@ pub enum ProtocolError {
 pub fn parse_battery_report(bytes: &[u8]) -> Result<ParsedBattery, ProtocolError> {
     if bytes.len() < 9 {
         return Err(ProtocolError::Truncated(bytes.len()));
+    }
+
+    if (bytes[1] == 0xa0 && bytes[4] == 0x02 && bytes[6] == 0x83)
+        || (bytes[0] == 0xa0 && bytes[3] == 0x02 && bytes[5] == 0x83)
+    {
+        return Err(ProtocolError::Pending);
     }
 
     let (layout, charging, percent) = if bytes[1] == 0xa1 && bytes[4] == 0x02 && bytes[6] == 0x83 {

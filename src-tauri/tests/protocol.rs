@@ -52,3 +52,16 @@ fn rejects_out_of_range_truncated_and_wrong_markers() {
     assert_eq!(parse_battery_report(&[0; 65]), Err(ProtocolError::MarkerMismatch));
 }
 
+#[test]
+fn pending_battery_frames_never_publish_their_zero_payload() {
+    let mut pending = shifted(0, false);
+    pending[1] = 0xa0;
+    assert_eq!(parse_battery_report(&pending), Err(ProtocolError::Pending));
+    let mut pending = normal(0, false);
+    pending[0] = 0xa0;
+    assert_eq!(parse_battery_report(&pending), Err(ProtocolError::Pending));
+    pending[5] = 0x82; // A0 from another command is not our pending battery reply.
+    assert_eq!(parse_battery_report(&pending), Err(ProtocolError::MarkerMismatch));
+    assert_eq!(parse_battery_report(&pending[..8]), Err(ProtocolError::Truncated(8)));
+}
+
