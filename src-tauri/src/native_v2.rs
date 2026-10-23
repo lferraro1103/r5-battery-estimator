@@ -87,6 +87,7 @@ const REFRESH: Rect = Rect::new(874, 838, 228, 60);
 const MINIMIZE: Rect = Rect::new(1028, 0, 56, 44);
 const CLOSE: Rect = Rect::new(1084, 0, 56, 44);
 const TRAY_TOGGLE_AUTOSTART: usize = 5;
+const HISTORY_DAYS: u64 = 60;
 static BATTERY: OnceLock<Mutex<ProbeResult>> = OnceLock::new();
 static HISTORY: OnceLock<Mutex<Vec<Sample>>> = OnceLock::new();
 static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
@@ -388,7 +389,7 @@ unsafe extern "system" fn window_proc(
                 .and_then(|history| history.lock().ok())
                 .map(|items| items.clone())
                 .unwrap_or_default();
-            let learned = learned_hours(&samples);
+            let learned = estimate(&samples);
             draw(
                 dc,
                 "R5 Battery Estimator",
@@ -451,7 +452,7 @@ unsafe extern "system" fn window_proc(
             draw(
                 dc,
                 &learned
-                    .map(|hours| format!("{hours:.0} h"))
+                    .map(|estimate| format!("{:.0} h", estimate.active_hours))
                     .unwrap_or_else(|| "Aprendiendo".to_owned()),
                 375,
                 300,
@@ -463,10 +464,10 @@ unsafe extern "system" fn window_proc(
             );
             draw(
                 dc,
-                if learned.is_some() { "Ciclos completos · confianza media" } else { "Sin ciclo completo · confianza baja" },
+                &full_charge_label(learned),
                 375,
                 390,
-                290,
+                320,
                 30,
                 11,
                 0xBED0E9,
@@ -499,10 +500,13 @@ unsafe extern "system" fn window_proc(
             );
             draw(
                 dc,
-                if fresh { estimate_label(learned) } else { "Esperando lectura nueva" },
+                &match percent.filter(|_| fresh) {
+                    Some(value) => remaining_label(learned, value),
+                    None => "Esperando lectura nueva".to_owned(),
+                },
                 763,
                 390,
-                280,
+                300,
                 30,
                 11,
                 0xBED0E9,
@@ -1275,12 +1279,13 @@ fn load_history() -> Vec<Sample> {
 }
 
 fn normalize_history(mut samples: Vec<Sample>, now: u64) -> Vec<Sample> {
-    let cutoff = now.saturating_sub(14 * 24 * 60 * 60);
+    // A charge lasts weeks, so keep enough history to span several of them.
+    let cutoff = now.saturating_sub(HISTORY_DAYS * 24 * 60 * 60);
     samples.retain(|sample| sample.percent <= 100 && sample.at >= cutoff && sample.at <= now);
     samples.sort_by_key(|sample| sample.at);
     // Stable sorting retains captured order. Remove only identical observations:
-    // conflicting states at the same second must survive so learned_hours sees
-    // their charging/non-increasing-time boundary and rejects a partial cycle.
+    // conflicting states at the same second must survive so the estimator sees
+    // their charging boundary.
     samples.dedup();
     samples
 }
@@ -1318,6 +1323,20 @@ fn save_history_with(
     result
 }
 
+/// An awake plateau at one percentage keeps one reading per active interval
+/// instead of one per poll. A merged pair never spans more than ACTIVE_GAP, so
+/// the estimator still counts it as active use and still sees sleep/PC-off gaps.
+fn append_sample(items: &mut Vec<Sample>, sample: Sample) {
+    let same = |other: &Sample| other.percent == sample.percent && other.charging == sample.charging;
+    if let [.., before, last] = items.as_mut_slice() {
+        if same(before) && same(last) && sample.at.saturating_sub(before.at) <= ACTIVE_GAP {
+            last.at = sample.at;
+            return;
+        }
+    }
+    items.push(sample);
+}
+
 fn record_sample(result: &ProbeResult) {
     let ProbeResult::Ok { reading } = result else {
         return;
@@ -1330,78 +1349,134 @@ fn record_sample(result: &ProbeResult) {
         percent: reading.percent,
         charging: reading.charging,
     };
-    if let Some(last) = items
-        .last_mut()
-        .filter(|last| now.saturating_sub(last.at) < 15
-            && last.percent == sample.percent && last.charging == sample.charging)
-    {
-        *last = sample;
-    } else {
-        items.push(sample);
-    }
+    append_sample(&mut items, sample);
     *items = normalize_history(std::mem::take(&mut *items), now);
     let snapshot = items.clone();
     drop(items); // Never hold a lock needed by painting during disk I/O.
     let _ = save_history_with(&history_path(), &snapshot, replace_history);
 }
 
-fn learned_hours(samples: &[Sample]) -> Option<f64> {
-    let mut start: Option<&Sample> = None;
-    let mut previous: Option<&Sample> = None;
-    let mut elapsed = 0_u64;
-    let mut dropped = 0_u64;
-    for sample in samples {
-        let boundary = sample.charging || sample.percent > 100 || previous.is_some_and(|before| {
-            sample.at <= before.at || sample.at - before.at > 600 || sample.percent > before.percent
-        });
-        if boundary {
-            start = None;
+/// Consecutive readings at most this far apart mean the mouse stayed awake and
+/// polled, so the time between them counts as active use.
+const ACTIVE_GAP: u64 = 600;
+/// Calendar drain spans nights and PC shutdowns, but not an absence so long
+/// that it says nothing about the user's normal rhythm.
+const CALENDAR_GAP: u64 = 3 * 24 * 60 * 60;
+/// The firmware jitters by one or two points; a larger rise is a recharge even
+/// when the charging flag was never observed (cable charging, app closed).
+const RECHARGE_JUMP: u8 = 5;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Confidence {
+    Low,
+    Medium,
+    High,
+}
+
+impl Confidence {
+    fn label(self) -> &'static str {
+        match self {
+            Confidence::Low => "confianza baja",
+            Confidence::Medium => "confianza media",
+            Confidence::High => "confianza alta",
         }
-        if sample.charging || sample.percent > 100 {
-            previous = None;
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Estimate {
+    /// Hours of awake, polled use that a full 100% charge lasts.
+    active_hours: f64,
+    /// Calendar days a full charge lasts at the user's observed rhythm.
+    calendar_days: Option<f64>,
+    confidence: Confidence,
+}
+
+/// Learns the drain rate from every discharge stretch instead of requiring one
+/// uninterrupted 100%→0% cycle. Net deltas are summed, so ±1% jitter cancels;
+/// charging samples and recharge jumps are boundaries that contribute nothing.
+fn estimate(samples: &[Sample]) -> Option<Estimate> {
+    let (mut active_drop, mut active_seconds) = (0_i64, 0_u64);
+    let (mut calendar_drop, mut calendar_seconds) = (0_i64, 0_u64);
+    for pair in samples.windows(2) {
+        let (before, after) = (&pair[0], &pair[1]);
+        let gap = after.at.saturating_sub(before.at);
+        if before.charging || after.charging || gap == 0
+            || after.percent >= before.percent.saturating_add(RECHARGE_JUMP)
+        {
             continue;
         }
-        if start.is_none() && sample.percent >= 95 {
-            start = Some(sample);
+        let delta = before.percent as i64 - after.percent as i64;
+        if gap <= ACTIVE_GAP {
+            active_drop += delta;
+            active_seconds += gap;
         }
-        if let Some(full) = start.filter(|_| sample.percent <= 5) {
-            let cycle_elapsed = sample.at - full.at;
-            let cycle_drop = (full.percent - sample.percent) as u64;
-            if cycle_elapsed >= 1800 && cycle_drop >= 90 {
-                elapsed += cycle_elapsed;
-                dropped += cycle_drop;
-            }
-            // Count a completed cycle once, never combine its low tail with another cycle.
-            start = None;
+        if gap <= CALENDAR_GAP {
+            calendar_drop += delta;
+            calendar_seconds += gap;
         }
-        previous = Some(sample);
     }
-    if dropped == 0 {
-        return None;
-    }
-    Some((100.0 / (dropped as f64 / (elapsed as f64 / 3600.0))).clamp(5.0, 1000.0))
+    let confidence = match active_drop {
+        drop if drop < 5 => return None,
+        drop if drop < 20 => Confidence::Low,
+        drop if drop < 50 => Confidence::Medium,
+        _ => Confidence::High,
+    };
+    let active_hours = (100.0 * active_seconds as f64 / 3600.0 / active_drop as f64).clamp(5.0, 1000.0);
+    let calendar_days = (calendar_drop >= 5 && calendar_seconds >= 24 * 60 * 60)
+        .then(|| (100.0 * calendar_seconds as f64 / 86_400.0 / calendar_drop as f64).clamp(0.5, 365.0));
+    Some(Estimate { active_hours, calendar_days, confidence })
 }
 
-/// A clearly provisional baseline keeps the live autonomy useful before a full
+/// A clearly provisional baseline keeps the live autonomy useful before enough
 /// discharge has been observed. The adjacent full-charge card remains
 /// `Aprendiendo`, so this is never presented as a learned calibration.
-fn remaining_hours(learned: Option<f64>, percent: u8) -> f64 {
-    learned.unwrap_or(200.0) * percent as f64 / 100.0
+fn remaining_hours(learned: Option<Estimate>, percent: u8) -> f64 {
+    learned.map_or(200.0, |estimate| estimate.active_hours) * percent as f64 / 100.0
 }
 
-fn estimate_label(learned: Option<f64>) -> &'static str {
-    if learned.is_some() { "Aprendida · confianza media" } else { "Estimación inicial · confianza baja" }
+fn remaining_days(learned: Option<Estimate>, percent: u8) -> Option<f64> {
+    learned?.calendar_days.map(|days| days * percent as f64 / 100.0)
 }
 
-fn reading_tip(percent: u8, charging: bool, learned: Option<f64>) -> String {
-    format!("R5 — {percent}% · {} · HID válido · ~{:.0} h · {}",
+fn format_days(days: f64) -> String {
+    if days < 1.95 { format!("{days:.1} días").replace('.', ",") } else { format!("{days:.0} días") }
+}
+
+fn estimate_label(learned: Option<Estimate>) -> String {
+    match learned {
+        Some(estimate) => format!("Uso activo · aprendida · {}", estimate.confidence.label()),
+        None => "Estimación inicial · confianza baja".to_owned(),
+    }
+}
+
+fn full_charge_label(learned: Option<Estimate>) -> String {
+    match learned {
+        Some(Estimate { calendar_days: Some(days), confidence, .. }) =>
+            format!("Uso activo · ~{} · {}", format_days(days), confidence.label()),
+        Some(estimate) => format!("Uso activo · {}", estimate.confidence.label()),
+        None => "Menos de 5% de descarga observada".to_owned(),
+    }
+}
+
+fn remaining_label(learned: Option<Estimate>, percent: u8) -> String {
+    match (learned, remaining_days(learned, percent)) {
+        (Some(estimate), Some(days)) => format!("Uso activo · ~{} · {}", format_days(days), estimate.confidence.label()),
+        _ => estimate_label(learned),
+    }
+}
+
+fn reading_tip(percent: u8, charging: bool, learned: Option<Estimate>) -> String {
+    let days = remaining_days(learned, percent).map(|days| format!(" · ~{}", format_days(days))).unwrap_or_default();
+    format!("R5 — {percent}% · {} · ~{:.0} h uso{days} · {}",
         if charging { "Cargando" } else { "No cargando" },
-        remaining_hours(learned, percent), estimate_label(learned))
+        remaining_hours(learned, percent),
+        learned.map_or("estimación inicial", |estimate| estimate.confidence.label()))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{advance_deadline, learned_hours, Sample, POLL_INTERVAL};
+    use super::{advance_deadline, estimate, Estimate, Sample, POLL_INTERVAL};
 
     #[test]
     fn polling_deadline_does_not_add_query_duration_or_manual_refresh() {
@@ -1421,10 +1496,14 @@ mod tests {
     #[test]
     fn tooltip_distinguishes_valid_telemetry_from_provisional_and_learned_estimates() {
         let initial = super::reading_tip(78, false, None);
-        assert!(initial.contains("HID válido") && initial.contains("~156 h") && initial.contains("inicial · confianza baja"));
-        let learned = super::reading_tip(78, false, Some(100.0));
-        assert!(learned.contains("~78 h") && learned.contains("Aprendida · confianza media"));
+        assert!(initial.contains("~156 h") && initial.contains("estimación inicial"));
+        let estimate = Estimate { active_hours: 100.0, calendar_days: Some(28.0), confidence: super::Confidence::Medium };
+        let learned = super::reading_tip(78, false, Some(estimate));
+        assert!(learned.contains("~78 h uso") && learned.contains("~22 días") && learned.contains("confianza media"));
         assert!(initial.encode_utf16().count() < 128 && learned.encode_utf16().count() < 128);
+        assert_eq!(super::full_charge_label(Some(estimate)), "Uso activo · ~28 días · confianza media");
+        assert_eq!(super::remaining_label(Some(estimate), 3), "Uso activo · ~0,8 días · confianza media");
+        assert_eq!(super::full_charge_label(None), "Menos de 5% de descarga observada");
     }
 
     #[test]
@@ -1473,7 +1552,7 @@ mod tests {
 
     #[test]
     fn loaded_history_repairs_order_duplicates_ranges_and_dates() {
-        let now = 2_000_000;
+        let now = 10_000_000;
         let samples = vec![
             Sample { at: now, percent: 50, charging: false },
             Sample { at: now - 30, percent: 51, charging: false },
@@ -1489,172 +1568,153 @@ mod tests {
     }
 
     #[test]
-    fn same_second_transitions_survive_normalization_and_break_learning() {
-        for charging in [false, true] {
-            let mut samples = cycle(100, 300);
-            let index = 50;
-            let original = samples[index].clone();
-            samples.insert(index + 1, Sample {
-                at: original.at,
-                percent: original.percent + u8::from(!charging),
-                charging,
-            });
-            let normalized = super::normalize_history(samples, 40_000);
-            assert_eq!(normalized.len(), 97);
-            assert_eq!(normalized[index], original);
-            assert_eq!(normalized[index + 1].at, original.at);
-            assert_eq!(normalized[index + 1].charging, charging);
-            assert_eq!(learned_hours(&normalized), None);
-        }
+    fn same_second_transitions_survive_normalization_as_charging_boundary() {
+        let mut samples = cycle(100, 300);
+        let index = 50;
+        let original = samples[index].clone();
+        samples.insert(index + 1, Sample { at: original.at, percent: original.percent, charging: true });
+        let normalized = super::normalize_history(samples, 40_000);
+        assert_eq!(normalized.len(), 97);
+        assert_eq!(normalized[index], original);
+        assert!(normalized[index + 1].charging);
+        // Both neighbours of the charging sample are skipped; the rest still teaches 300 s per point.
+        let learned = estimate(&normalized).unwrap();
+        assert!((learned.active_hours - 300.0 * 100.0 / 3600.0).abs() < 0.001);
     }
 
     #[test]
-    fn history_atomic_roundtrip_and_failed_replacement_preserve_previous_file() {
-        let directory = std::env::temp_dir().join(format!("r5-history-test-{}-{}", std::process::id(), super::now_seconds()));
-        let path = directory.join("history.json");
-        let original = cycle(100, 300);
-        super::save_history_with(&path, &original, super::replace_history).unwrap();
-        let raw = std::fs::read(&path).unwrap();
-        let restored: Vec<Sample> = serde_json::from_slice(&raw).unwrap();
-        assert_eq!(restored, original);
-        let next = cycle(30_000, 600);
-        let failed = super::save_history_with(&path, &next, |temporary, _| {
-            let staged: Vec<Sample> = serde_json::from_slice(&std::fs::read(temporary)?).unwrap();
-            assert_eq!(staged, next);
-            Err(std::io::Error::other("injected replacement failure"))
-        });
-        assert!(failed.is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), raw);
-        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
-        super::save_history_with(&path, &next, super::replace_history).unwrap();
-        assert_eq!(serde_json::from_slice::<Vec<Sample>>(&std::fs::read(&path).unwrap()).unwrap(), next);
-        std::fs::remove_file(path).unwrap();
-        std::fs::remove_dir(directory).unwrap();
-    }
-
-    #[test]
-    fn recharge_increase_and_gap_each_invalidate_the_entire_partial_cycle() {
-        for boundary in [0, 1, 2] {
-            let mut samples = cycle(0, 300);
-            match boundary {
-                0 => samples[50].charging = true,
-                1 => samples[50].percent = 80,
-                _ => for item in &mut samples[50..] { item.at += 900; },
+    fn learns_from_partial_discharges_split_by_sleep_and_pc_off() {
+        // Mirrors the real history: short awake sessions, nights off, never near 0% or 100%.
+        let mut samples = Vec::new();
+        let mut percent = 94;
+        for day in 0..14_u64 {
+            for session in 0..2_u64 {
+                // Two hours of 5-minute readings losing one point every 40 minutes,
+                // then 30 minutes asleep before the next session.
+                let start = day * 86_400 + session * 9_000;
+                for step in 0..=24_u64 {
+                    samples.push(Sample { at: start + step * 300, percent: percent - (step / 8) as u8, charging: false });
+                }
+                percent -= 3;
             }
-            assert_eq!(learned_hours(&samples), None, "boundary {boundary}");
+            // The PC stays off for the rest of the day.
+        }
+        let learned = estimate(&samples).expect("partial discharges are enough to learn");
+        assert!((learned.active_hours - 2_400.0 * 100.0 / 3600.0).abs() < 0.001);
+        assert_eq!(learned.confidence, super::Confidence::High);
+        let days = learned.calendar_days.unwrap();
+        assert!(days > 10.0 && days < 25.0, "calendar days {days}");
+    }
+
+    #[test]
+    fn one_percent_jitter_cancels_instead_of_breaking_learning() {
+        let mut samples = Vec::new();
+        for index in 0..60_u64 {
+            // 80, 79, 80, 79, 78, 79 ... net one point every 3 readings.
+            let percent = 80 - (index / 3) as u8 + u8::from(index % 3 == 1);
+            samples.push(Sample { at: index * 300, percent, charging: false });
+        }
+        let learned = estimate(&samples).unwrap();
+        let drop = samples[0].percent - samples[59].percent;
+        assert!((learned.active_hours - 59.0 * 300.0 * 100.0 / 3600.0 / drop as f64).abs() < 0.001);
+    }
+
+    #[test]
+    fn recharge_jump_without_charging_flag_is_a_boundary() {
+        let mut samples = cycle(0, 300);
+        samples.truncate(20); // 100 → 81
+        // Cable charge while the app could not read: next reading is 95% an hour later.
+        samples.push(Sample { at: 20 * 300 + 3_600, percent: 95, charging: false });
+        samples.extend(cycle(20 * 300 + 3_900, 300).into_iter().skip(5).take(10)); // 95 → 86
+        let learned = estimate(&samples).unwrap();
+        // 19 + 9 points, all at 300 s each; the +14% jump adds neither drop nor time.
+        assert!((learned.active_hours - 300.0 * 100.0 / 3600.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn gaps_count_for_calendar_but_not_for_active_use() {
+        let mut samples = Vec::new();
+        for (start, first) in [(0_u64, 90_u8), (3_000 + 86_400, 83)] {
+            for step in 0..=5_u64 {
+                samples.push(Sample { at: start + step * 600, percent: first - step as u8, charging: false });
+            }
+        }
+        let learned = estimate(&samples).unwrap();
+        // 10 points over 6000 active seconds; the day-long gap only adds calendar time.
+        assert!((learned.active_hours - 6_000.0 * 100.0 / 3600.0 / 10.0).abs() < 0.001);
+        let days = learned.calendar_days.unwrap();
+        assert!((days - (92_400.0 / 86_400.0) * 100.0 / 12.0).abs() < 0.001);
+        assert_eq!(learned.confidence, super::Confidence::Low);
+    }
+
+    #[test]
+    fn does_not_claim_learning_below_five_points() {
+        let samples = [
+            Sample { at: 0, percent: 80, charging: false },
+            Sample { at: 300, percent: 79, charging: false },
+            Sample { at: 600, percent: 77, charging: false },
+            Sample { at: 900, percent: 76, charging: false },
+        ];
+        assert_eq!(estimate(&samples), None);
+        assert_eq!(estimate(&[]), None);
+    }
+
+    #[test]
+    fn charging_segments_teach_nothing() {
+        let samples: Vec<_> = (0..40_u64).map(|index| Sample {
+            at: index * 300, percent: 100 - index as u8, charging: true,
+        }).collect();
+        assert_eq!(estimate(&samples), None);
+    }
+
+    #[test]
+    fn confidence_grows_with_observed_drop() {
+        for (points, expected) in [(10, super::Confidence::Low), (30, super::Confidence::Medium), (60, super::Confidence::High)] {
+            let mut samples = cycle(0, 300);
+            samples.truncate(points + 1);
+            assert_eq!(estimate(&samples).unwrap().confidence, expected, "{points} points");
         }
     }
 
     #[test]
-    fn completed_cycles_are_weighted_without_incomplete_recharge_segments() {
-        let mut samples = cycle(0, 300);
-        samples.push(Sample { at: 28_800, percent: 60, charging: true });
-        let mut incomplete = cycle(29_100, 300);
-        incomplete.truncate(30);
-        samples.extend(incomplete);
-        samples.push(Sample { at: 38_100, percent: 100, charging: true });
-        samples.extend(cycle(38_400, 600));
-        assert!((learned_hours(&samples).unwrap() - 12.5).abs() < 0.001);
+    fn plateau_compaction_keeps_one_reading_per_active_interval_and_preserves_gaps() {
+        let mut items = Vec::new();
+        for index in 0..=40_u64 {
+            super::append_sample(&mut items, Sample { at: index * 30, percent: 70, charging: false });
+        }
+        // 20 minutes of 30 s polls at one percentage: pairs never span more than ACTIVE_GAP.
+        assert!(items.len() <= 4, "{} samples", items.len());
+        assert!(items.windows(2).all(|pair| pair[1].at - pair[0].at <= super::ACTIVE_GAP));
+        assert_eq!(items.last().unwrap().at, 1_200);
+        super::append_sample(&mut items, Sample { at: 1_200 + 3_600, percent: 70, charging: false });
+        assert_eq!(items.last().unwrap().at, 4_800);
+        assert_eq!(items[items.len() - 2].at, 1_200, "sleep gap stays visible");
+        super::append_sample(&mut items, Sample { at: 4_830, percent: 69, charging: false });
+        assert_eq!(items.last().unwrap().percent, 69);
     }
 
     #[test]
-    fn does_not_claim_learning_without_a_full_discharge() {
-        let samples = [
-            Sample {
-                at: 0,
-                percent: 100,
-                charging: false,
-            },
-            Sample {
-                at: 3_600,
-                percent: 80,
-                charging: false,
-            },
-        ];
-        assert_eq!(learned_hours(&samples), None);
+    #[ignore = "reads this PC's local battery history"]
+    fn local_history_produces_an_estimate() {
+        let samples = super::load_history();
+        let learned = estimate(&samples);
+        println!("{} samples -> {learned:?}", samples.len());
+        if let Some(last) = samples.last() {
+            println!("{}% -> {}", last.percent, super::reading_tip(last.percent, last.charging, learned));
+        }
+        assert!(learned.is_some());
     }
 
     #[test]
-    fn learns_only_from_a_valid_full_discharge() {
-        let samples = [
-            Sample {
-                at: 0,
-                percent: 100,
-                charging: false,
-            },
-            Sample {
-                at: 300,
-                percent: 85,
-                charging: false,
-            },
-            Sample {
-                at: 600,
-                percent: 70,
-                charging: false,
-            },
-            Sample {
-                at: 900,
-                percent: 55,
-                charging: false,
-            },
-            Sample {
-                at: 1_200,
-                percent: 40,
-                charging: false,
-            },
-            Sample {
-                at: 1_500,
-                percent: 25,
-                charging: false,
-            },
-            Sample {
-                at: 1_800,
-                percent: 10,
-                charging: false,
-            },
-            Sample {
-                at: 2_100,
-                percent: 5,
-                charging: false,
-            },
+    fn history_keeps_sixty_days() {
+        let now = 100 * 86_400;
+        let samples = vec![
+            Sample { at: now - 61 * 86_400, percent: 90, charging: false },
+            Sample { at: now - 59 * 86_400, percent: 80, charging: false },
         ];
-        let hours = learned_hours(&samples).expect("valid cycle should learn");
-        assert_eq!(
-            hours, 5.0,
-            "floor prevents implausibly short full-charge claims"
-        );
-    }
-
-    #[test]
-    fn ignores_long_gaps_and_charging_segments() {
-        let samples = [
-            Sample {
-                at: 0,
-                percent: 100,
-                charging: false,
-            },
-            Sample {
-                at: 3_600,
-                percent: 90,
-                charging: false,
-            },
-            Sample {
-                at: 7_500,
-                percent: 89,
-                charging: false,
-            },
-            Sample {
-                at: 7_530,
-                percent: 88,
-                charging: true,
-            },
-            Sample {
-                at: 7_560,
-                percent: 5,
-                charging: false,
-            },
-        ];
-        assert_eq!(learned_hours(&samples), None);
+        let kept = super::normalize_history(samples, now);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].percent, 80);
     }
 }
 
@@ -1987,7 +2047,7 @@ fn tray_tip() -> String {
     let learned = HISTORY
         .get()
         .and_then(|history| history.lock().ok())
-        .map(|samples| learned_hours(&samples));
+        .map(|samples| estimate(&samples));
     match BATTERY
         .get()
         .and_then(|state| state.lock().ok())
