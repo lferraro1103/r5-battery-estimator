@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-28)
 Phase: 5 of 5 (Native Rust V2 polish, performance and professional dashboard)
 Plan: Not planned yet
 Status: Ready to plan
-Last activity: 2026-09-28 - Completed quick task 260928-g9c: Preparar el proyecto investigado y publicarlo en un repositorio privado de GitHub para continuarlo desde otra computadora
+Last activity: 2026-10-23 - Completed quick task 261023-qz3: Estimador por tasa de consumo
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -89,6 +89,7 @@ Recent decisions affecting current work:
 | 260930-08z | Agregar un interruptor de inicio automático con Windows al menú de bandeja | 2026-09-30 | db5dbd4 | [260930-08z-autostart-tray-toggle](./quick/260930-08z-autostart-tray-toggle/) |
 | 260930-l27 | Retirar aplicaciones anteriores y mantener solo V2 nativa | 2026-09-30 | 83514c3 | [260930-l27-dejar-solamente-v2-nativa-y-retirar-las-](./quick/260930-l27-dejar-solamente-v2-nativa-y-retirar-las-/) |
 | 260930-nwl | Publicar instalador V2 con tiburón completo en EXE/setup y pantalla GPL v3 | 2026-09-30 | 3e217e3 | [260930-nwl-publicar-instalador-v2-con-iconos-del-ti](./quick/260930-nwl-publicar-instalador-v2-con-iconos-del-ti/) |
+| 261023-qz3 | Estimador por tasa de consumo: aprende de descargas parciales, detecta recargas por saltos, 60 días de historial | 2026-10-23 | a4374e6 | [261023-qz3-estimador-por-tasa-de-consumo](./quick/261023-qz3-estimador-por-tasa-de-consumo/) |
 
 ## Deferred Items
 
