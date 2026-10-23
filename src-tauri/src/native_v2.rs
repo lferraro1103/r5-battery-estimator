@@ -36,7 +36,7 @@ use windows::{
             GdipCreateEffect, GdipCreateFromHDC, GdipCreateHICONFromBitmap,
             GdipCreateLineBrushFromRectI, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush,
             GdipDeleteEffect, GdipDeleteGraphics, GdipDeletePen, GdipDisposeImage, GdipDrawArcI,
-            GdipDrawCurve2I, GdipDrawEllipseI, GdipDrawImageRectI, GdipDrawLinesI,
+            GdipDrawEllipseI, GdipDrawImageRectI, GdipDrawLinesI,
             GdipFillEllipseI, GdipFillPolygonI, GdipGetImageGraphicsContext,
             GdipSetCompositingQuality, GdipSetEffectParameters, GdipSetInterpolationMode,
             GdipSetPenEndCap, GdipSetPenStartCap, GdipSetPixelOffsetMode, GdipSetSmoothingMode,
@@ -57,7 +57,7 @@ use windows::{
             HiDpi::{GetDpiForWindow, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
             Input::KeyboardAndMouse::ReleaseCapture,
             Shell::{
-                Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD,
+                Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_WARNING, NIM_ADD,
                 NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
             },
             WindowsAndMessaging::{
@@ -88,6 +88,11 @@ const MINIMIZE: Rect = Rect::new(1028, 0, 56, 44);
 const CLOSE: Rect = Rect::new(1084, 0, 56, 44);
 const TRAY_TOGGLE_AUTOSTART: usize = 5;
 const HISTORY_DAYS: u64 = 60;
+const TEXT: u32 = 0xF7F9FC;
+const MUTED: u32 = 0x8EA3B5;
+const GREEN: u32 = 0x2FE189;
+const AMBER: u32 = 0xFFB833;
+const RED: u32 = 0xFF5C5C;
 static BATTERY: OnceLock<Mutex<ProbeResult>> = OnceLock::new();
 static HISTORY: OnceLock<Mutex<Vec<Sample>>> = OnceLock::new();
 static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
@@ -201,6 +206,11 @@ fn main() -> windows::core::Result<()> {
             ..Default::default()
         };
         let _ = GdiplusStartup(&mut gdiplus_token, &startup, std::ptr::null_mut());
+        let mut args = std::env::args().skip(1);
+        if args.next().as_deref() == Some("--render-png") {
+            let path = args.next().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("panel.png"));
+            return render_png(&path);
+        }
         let _instance_guard = CreateMutexW(None, false, w!("Local\\R5BatteryEstimatorNativeV2"))?;
         if GetLastError() == ERROR_ALREADY_EXISTS {
             return Ok(());
@@ -349,6 +359,7 @@ unsafe extern "system" fn window_proc(
         }
         BATTERY_UPDATED => {
             update_tray(hwnd);
+            check_low_battery(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
             LRESULT(0)
         }
@@ -366,172 +377,7 @@ unsafe extern "system" fn window_proc(
                 return LRESULT(0);
             }
             let old_bitmap = SelectObject(dc, bitmap.into());
-            let background = CreateSolidBrush(rgb(0x0A1117));
-            FillRect(dc, &RECT { left: 0, top: 0, right: WIDTH, bottom: HEIGHT }, background);
-            let _ = DeleteObject(background.into());
-            let header = CreateSolidBrush(rgb(0x0D161D));
-            FillRect(
-                dc,
-                &windows::Win32::Foundation::RECT {
-                    left: 0,
-                    top: 0,
-                    right: WIDTH,
-                    bottom: CHROME_HEIGHT,
-                },
-                header,
-            );
-            let _ = DeleteObject(header.into());
-            SetBkMode(dc, TRANSPARENT);
-            let current = BATTERY.get().and_then(|s| s.lock().ok()).map(|s| s.clone());
-            let (percent, status, fresh) = panel_battery(current.as_ref(), last_valid_sample());
-            let samples = HISTORY
-                .get()
-                .and_then(|history| history.lock().ok())
-                .map(|items| items.clone())
-                .unwrap_or_default();
-            let learned = estimate(&samples);
-            draw(
-                dc,
-                "R5 Battery Estimator",
-                38,
-                64,
-                700,
-                70,
-                42,
-                0xF7F9FC,
-                true,
-            );
-            draw_brand_icon(dc, 20, 8, 28);
-            draw(
-                dc,
-                "R5 Battery Estimator",
-                54,
-                0,
-                320,
-                CHROME_HEIGHT,
-                15,
-                0xF7F9FC,
-                false,
-            );
-            draw_center(
-                dc, "—", MINIMIZE.x, 0, MINIMIZE.w, MINIMIZE.h, 18, 0xF7F9FC, false,
-            );
-            draw_center(dc, "×", CLOSE.x, 0, CLOSE.w, CLOSE.h, 22, 0xF7F9FC, false);
-            draw(
-                dc,
-                "Se aprende con tu descarga real.",
-                38,
-                125,
-                700,
-                42,
-                18,
-                0xBED0E9,
-                false,
-            );
-            draw_right(dc, "R5 ULTRA", 874, 84, 130, 45, 18, 0xFF5353, true);
-            draw_mascot(dc, 1010, 58, 84);
-            // The three top instruments use 34 px between each visible neighbour.
-            card(dc, 349, 220, 350, 230);
-            card(dc, 733, 220, 340, 230);
-            chart(dc, &samples);
-            button(dc);
-            // The actual outer ring begins at x + 14, matching the graph border x = 38.
-            ring(dc, 24, 182, 305, percent, status);
-            clock_glyph(dc, 384, 265);
-            draw(
-                dc,
-                "DURACIÓN DE CARGA COMPLETA",
-                399,
-                250,
-                290,
-                30,
-                11,
-                0xBED0E9,
-                false,
-            );
-            draw(
-                dc,
-                &learned
-                    .map(|estimate| format!("{:.0} h", estimate.active_hours))
-                    .unwrap_or_else(|| "Aprendiendo".to_owned()),
-                375,
-                300,
-                290,
-                62,
-                42,
-                0xF5F5F5,
-                true,
-            );
-            draw(
-                dc,
-                &full_charge_label(learned),
-                375,
-                390,
-                320,
-                30,
-                11,
-                0xBED0E9,
-                false,
-            );
-            bars_glyph(dc, 770, 276);
-            draw(
-                dc,
-                "AUTONOMÍA RESTANTE",
-                794,
-                250,
-                270,
-                30,
-                11,
-                0xBED0E9,
-                false,
-            );
-            draw(
-                dc,
-                &percent.filter(|_| fresh)
-                    .map(|value| format!("~{:.0} h", remaining_hours(learned, value)))
-                    .unwrap_or_else(|| "—".to_owned()),
-                763,
-                300,
-                270,
-                62,
-                42,
-                0xF5F5F5,
-                true,
-            );
-            draw(
-                dc,
-                &match percent.filter(|_| fresh) {
-                    Some(value) => remaining_label(learned, value),
-                    None => "Esperando lectura nueva".to_owned(),
-                },
-                763,
-                390,
-                300,
-                30,
-                11,
-                0xBED0E9,
-                false,
-            );
-            draw(
-                dc,
-                &last_reading_label(),
-                55,
-                851,
-                600,
-                30,
-                13,
-                0xBED0E9,
-                false,
-            );
-            // Hairline inside the rounded region keeps the shell intentionally rounded instead of full-bleed square.
-            let hollow = GetStockObject(HOLLOW_BRUSH);
-            let old_brush = SelectObject(dc, hollow);
-            let root_border = CreatePen(PS_SOLID, 1, rgb(0x233440));
-            let old_pen = SelectObject(dc, root_border.into());
-            let _ = RoundRect(dc, 0, 0, WIDTH - 1, HEIGHT - 1, 24, 24);
-            SelectObject(dc, old_pen);
-            SelectObject(dc, old_brush);
-            let _ = DeleteObject(root_border.into());
+            render_panel(dc);
             let mut client = RECT::default();
             let _ = GetClientRect(hwnd, &mut client);
             SetStretchBltMode(target, HALFTONE);
@@ -549,6 +395,188 @@ unsafe extern "system" fn window_proc(
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, message, wparam, lparam),
+    }
+}
+
+/// Development aid: renders the dashboard from the local history's latest
+/// reading into a PNG, without a window, tray icon or HID query.
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn render_png(path: &Path) -> windows::core::Result<()> {
+    use r5_battery_estimator::battery::protocol::{ParsedBattery, ReportLayout};
+    use windows::Win32::Graphics::{
+        Gdi::{GetDC, ReleaseDC, HPALETTE},
+        GdiPlus::{GdipCreateBitmapFromHBITMAP, GdipSaveImageToFile},
+    };
+    const PNG_ENCODER: windows::core::GUID = windows::core::GUID::from_u128(0x557cf406_1a04_11d3_9a73_0000f81ef32e);
+    let samples = load_history();
+    let latest = samples.last().cloned();
+    BATTERY.get_or_init(|| Mutex::new(match &latest {
+        Some(sample) => ProbeResult::Ok { reading: ParsedBattery {
+            percent: sample.percent, charging: sample.charging, layout: ReportLayout::Normal,
+        } },
+        None => ProbeResult::Error { code: "pending", message: String::new() },
+    }));
+    LAST_READING.get_or_init(|| Mutex::new(latest.as_ref().map(|sample| sample.at)));
+    HISTORY.get_or_init(|| Mutex::new(samples));
+    let screen = GetDC(None);
+    let dc = CreateCompatibleDC(Some(screen));
+    let bitmap = CreateCompatibleBitmap(screen, WIDTH, HEIGHT);
+    let old = SelectObject(dc, bitmap.into());
+    render_panel(dc);
+    SelectObject(dc, old);
+    let mut image = std::ptr::null_mut();
+    let wide: Vec<u16> = path.as_os_str().to_string_lossy().encode_utf16().chain(Some(0)).collect();
+    let saved = GdipCreateBitmapFromHBITMAP(bitmap, HPALETTE::default(), &mut image).0 == 0
+        && GdipSaveImageToFile(image.cast(), PCWSTR(wide.as_ptr()), &PNG_ENCODER, std::ptr::null()).0 == 0;
+    if !image.is_null() {
+        let _ = GdipDisposeImage(image.cast());
+    }
+    release_brand_images();
+    let _ = DeleteObject(bitmap.into());
+    let _ = DeleteDC(dc);
+    ReleaseDC(None, screen);
+    if saved { Ok(()) } else { Err(windows::Win32::Foundation::E_FAIL.into()) }
+}
+
+/// Paints the whole dashboard at its logical WIDTH × HEIGHT. WM_PAINT scales the
+/// result to the window; `--render-png` saves it for visual review.
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn render_panel(dc: windows::Win32::Graphics::Gdi::HDC) {
+    let background = CreateSolidBrush(rgb(0x0A1117));
+    FillRect(dc, &RECT { left: 0, top: 0, right: WIDTH, bottom: HEIGHT }, background);
+    let _ = DeleteObject(background.into());
+    let header = CreateSolidBrush(rgb(0x0D161D));
+    FillRect(dc, &RECT { left: 0, top: 0, right: WIDTH, bottom: CHROME_HEIGHT }, header);
+    let _ = DeleteObject(header.into());
+    SetBkMode(dc, TRANSPARENT);
+    let current = BATTERY.get().and_then(|s| s.lock().ok()).map(|s| s.clone());
+    let (percent, status, fresh) = panel_battery(current.as_ref(), last_valid_sample());
+    let samples = HISTORY
+        .get()
+        .and_then(|history| history.lock().ok())
+        .map(|items| items.clone())
+        .unwrap_or_default();
+    let learned = estimate(&samples);
+    let now = now_seconds();
+
+    // Window chrome.
+    draw_brand_icon(dc, 20, 8, 28);
+    draw(dc, "R5 Battery Estimator", 54, 0, 320, CHROME_HEIGHT, 14, MUTED, false);
+    draw_center(dc, "—", MINIMIZE.x, 0, MINIMIZE.w, MINIMIZE.h, 18, TEXT, false);
+    draw_center(dc, "×", CLOSE.x, 0, CLOSE.w, CLOSE.h, 22, TEXT, false);
+
+    // Header: what this is, and whether the receiver is answering right now.
+    draw(dc, "Batería del R5 Ultra", 38, 62, 680, 56, 36, TEXT, true);
+    draw(dc, "Autonomía estimada a partir de tu consumo real", 40, 114, 680, 30, 16, MUTED, false);
+    let (pill, dot) = match current.as_ref() {
+        Some(ProbeResult::Ok { .. }) => ("Receptor 2.4 GHz · en línea", GREEN),
+        Some(ProbeResult::Error { code: "reading_unavailable", .. }) => ("Mouse en reposo", AMBER),
+        Some(ProbeResult::Error { code: "pending", .. }) => ("Conectando con el receptor…", MUTED),
+        _ => ("Receptor no detectado", RED),
+    };
+    status_pill(dc, pill, dot);
+    draw_mascot(dc, 1010, 58, 84);
+
+    // The actual outer ring begins at x + 14, matching the chart border x = 38.
+    ring(dc, 24, 182, 305, percent, status);
+
+    let dash = || "—".to_owned();
+    let (confidence, confidence_color) = learned.map_or(("Baja", MUTED), |estimate| estimate.confidence.word());
+    metric_card(
+        dc, 349, 350, true, "DURACIÓN DE UNA CARGA",
+        &learned.map_or_else(|| "Calibrando".to_owned(), |estimate| format!("{:.0} h", estimate.active_hours)),
+        if learned.is_some() { "de uso activo con la batería al 100%" } else { "se necesita al menos 5% de descarga" },
+        [
+            ("A tu ritmo", learned.and_then(|estimate| estimate.calendar_days)
+                .map_or_else(dash, |days| format!("~{}", format_days(days))), TEXT),
+            ("Confianza", confidence.to_owned(), confidence_color),
+        ],
+    );
+    let live = percent.filter(|_| fresh);
+    metric_card(
+        dc, 733, 340, false, "AUTONOMÍA RESTANTE",
+        &live.map_or_else(dash, |value| format!("~{:.0} h", remaining_hours(learned, value))),
+        match (live, learned) {
+            (None, _) => "esperando una lectura del mouse",
+            (Some(_), Some(_)) => "de uso activo",
+            (Some(_), None) => "estimación inicial, sin calibrar",
+        },
+        [
+            ("A tu ritmo", live.and_then(|value| remaining_days(learned, value))
+                .map_or_else(dash, |days| format!("~{}", format_days(days))), TEXT),
+            ("Cargar antes del", live.and_then(|value| charge_by(learned, value, now)).unwrap_or_else(dash), TEXT),
+        ],
+    );
+
+    chart(dc, &samples, now);
+    draw(dc, &last_reading_label(), 40, 851, 700, 30, 13, MUTED, false);
+    button(dc);
+    // Hairline inside the rounded region keeps the shell intentionally rounded instead of full-bleed square.
+    let hollow = GetStockObject(HOLLOW_BRUSH);
+    let old_brush = SelectObject(dc, hollow);
+    let root_border = CreatePen(PS_SOLID, 1, rgb(0x233440));
+    let old_pen = SelectObject(dc, root_border.into());
+    let _ = RoundRect(dc, 0, 0, WIDTH - 1, HEIGHT - 1, 24, 24);
+    SelectObject(dc, old_pen);
+    SelectObject(dc, old_brush);
+    let _ = DeleteObject(root_border.into());
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn status_pill(dc: windows::Win32::Graphics::Gdi::HDC, text: &str, dot: u32) {
+    let (x, y, width, height) = (748, 94, 244, 36);
+    let fill = CreateSolidBrush(rgb(0x101B23));
+    let border = CreatePen(PS_SOLID, 1, rgb(0x233440));
+    let old_brush = SelectObject(dc, fill.into());
+    let old_pen = SelectObject(dc, border.into());
+    let _ = RoundRect(dc, x, y, x + width, y + height, height, height);
+    let dot_fill = CreateSolidBrush(rgb(dot));
+    let dot_pen = CreatePen(PS_SOLID, 1, rgb(dot));
+    SelectObject(dc, dot_fill.into());
+    SelectObject(dc, dot_pen.into());
+    let _ = Ellipse(dc, x + 16, y + height / 2 - 5, x + 26, y + height / 2 + 5);
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
+    for object in [fill.into(), border.into(), dot_fill.into(), dot_pen.into()] {
+        let _ = DeleteObject(object);
+    }
+    draw(dc, text, x + 36, y, width - 48, height, 13, 0xD6E2EE, false);
+}
+
+/// One headline figure with its unit, then two labelled detail rows.
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn metric_card(
+    dc: windows::Win32::Graphics::Gdi::HDC,
+    x: i32,
+    width: i32,
+    clock: bool,
+    title: &str,
+    value: &str,
+    unit: &str,
+    rows: [(&str, String, u32); 2],
+) {
+    let y = 220;
+    card(dc, x, y, width, 230);
+    let label_x = if clock {
+        clock_glyph(dc, x + 35, y + 45);
+        x + 50
+    } else {
+        bars_glyph(dc, x + 37, y + 56);
+        x + 61
+    };
+    draw(dc, title, label_x, y + 30, width - 80, 30, 12, MUTED, true);
+    draw(dc, value, x + 26, y + 62, width - 52, 58, 42, TEXT, true);
+    draw(dc, unit, x + 28, y + 118, width - 56, 24, 13, MUTED, false);
+    let divider = CreatePen(PS_SOLID, 1, rgb(0x233440));
+    let old = SelectObject(dc, divider.into());
+    let _ = MoveToEx(dc, x + 26, y + 154, None);
+    let _ = LineTo(dc, x + width - 26, y + 154);
+    SelectObject(dc, old);
+    let _ = DeleteObject(divider.into());
+    for (index, (label, value, color)) in rows.iter().enumerate() {
+        let top = y + 160 + index as i32 * 30;
+        draw(dc, label, x + 28, top, width / 2, 28, 14, MUTED, false);
+        draw_right(dc, value, x + width / 2, top, width / 2 - 28, 28, 14, *color, true);
     }
 }
 
@@ -593,26 +621,34 @@ fn last_valid_sample() -> Option<Sample> {
 fn panel_battery(result: Option<&ProbeResult>, last: Option<Sample>) -> (Option<u8>, &'static str, bool) {
     match result {
         Some(ProbeResult::Ok { reading }) => (Some(reading.percent),
-            if reading.charging { "Cargando" } else { "No cargando" }, true),
+            if reading.charging { "Cargando" } else { "En batería" }, true),
         Some(ProbeResult::Error { code: "reading_unavailable", .. }) =>
-            (last.map(|sample| sample.percent), "Sin lectura nueva", false),
-        _ => (None, "Sin lectura válida", false),
+            (last.map(|sample| sample.percent), "Último valor conocido", false),
+        _ => (None, "Sin lectura", false),
+    }
+}
+
+fn elapsed_label(seconds: u64) -> String {
+    match seconds {
+        0..90 => format!("{seconds} s"),
+        90..5_400 => format!("{} min", (seconds + 30) / 60),
+        _ => format!("{} h", (seconds + 1_800) / 3_600),
     }
 }
 
 fn pending_tip(last: Option<Sample>, now: u64) -> String {
     match last {
-        Some(sample) => format!("R5 — último {}% · hace {} s · sin lectura nueva; posible reposo · autonomía pendiente",
-            sample.percent, now.saturating_sub(sample.at)),
-        None => "R5 — sin lectura válida; posible reposo · mueve el mouse y actualiza".to_owned(),
+        Some(sample) => format!("R5 Ultra · {}% hace {} · mouse en reposo",
+            sample.percent, elapsed_label(now.saturating_sub(sample.at))),
+        None => "R5 Ultra · sin lectura · mové el mouse para despertarlo".to_owned(),
     }
 }
 
 fn last_reading_label() -> String {
     LAST_READING.get().and_then(|state| state.lock().ok()).and_then(|at| *at)
         .and_then(|at| DateTime::from_timestamp(at as i64, 0))
-        .map(|at| format!("Última lectura válida: {} · Sondeo cada 30 s", at.with_timezone(&chrono::Local).format("%H:%M:%S")))
-        .unwrap_or_else(|| "Esperando lectura válida · Sondeo cada 30 s".to_owned())
+        .map(|at| format!("Última lectura: {} · actualización automática cada 30 s", at.with_timezone(&chrono::Local).format("%H:%M")))
+        .unwrap_or_else(|| "Esperando la primera lectura · actualización automática cada 30 s".to_owned())
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -871,151 +907,128 @@ unsafe fn card(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, width: i3
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample]) {
-    card(dc, 38, 530, 1064, 280);
-    // Header and axis labels share the card's left content margin.
-    bars_glyph(dc, 70, 587);
-    draw(
-        dc,
-        "HISTORIAL: HORA / PORCENTAJE",
-        98,
-        560,
-        420,
-        30,
-        15,
-        0xBED0E9,
-        true,
-    );
-    draw_right(dc, "100%", 70, 603, 60, 25, 11, 0xBED0E9, false);
-    draw_right(dc, "0%", 90, 737, 40, 25, 11, 0xBED0E9, false);
-    draw(dc, "24 h", 133, 765, 80, 25, 11, 0xBED0E9, false);
-    draw_right(dc, "ahora", 993, 765, 63, 25, 11, 0xBED0E9, false);
-    let grid = CreatePen(PS_SOLID, 1, rgb(0x334956));
+unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample], now: u64) {
+    const DAYS: u64 = 7;
+    const SPAN: u64 = DAYS * 24 * 60 * 60;
+    let (left, right, top, bottom) = (133, 1056, 556, 756);
+    card(dc, 38, 480, 1064, 330);
+    bars_glyph(dc, 70, 527);
+    draw(dc, "Últimos 7 días", 98, 500, 420, 30, 15, TEXT, true);
+    draw_right(dc, "Promedio por hora", 700, 500, 356, 30, 12, MUTED, false);
+    let grid = CreatePen(PS_SOLID, 1, rgb(0x233440));
     let old = SelectObject(dc, grid.into());
-    for row in 0..4 {
-        let y = 615 + row * 34;
-        let _ = MoveToEx(dc, 133, y, None);
-        let _ = LineTo(dc, 1056, y);
+    for row in 0..=4 {
+        let y = top + row * (bottom - top) / 4;
+        let _ = MoveToEx(dc, left, y, None);
+        let _ = LineTo(dc, right, y);
     }
-    for col in 1..4 {
-        let x = 133 + col * 231;
-        let _ = MoveToEx(dc, x, 615, None);
-        let _ = LineTo(dc, x, 749);
+    let start = now.saturating_sub(SPAN);
+    let x_of = |at: u64| left + (at.saturating_sub(start) as f64 / SPAN as f64 * (right - left) as f64) as i32;
+    let y_of = |percent: f64| bottom - (percent * (bottom - top) as f64 / 100.0).round() as i32;
+    // Day separators sit on local midnights, labelled with the day they open.
+    for (at, date) in local_midnights(start, now) {
+        let x = x_of(at);
+        let _ = MoveToEx(dc, x, top, None);
+        let _ = LineTo(dc, x, bottom);
+        if x + 50 <= right + 20 {
+            draw_center(dc, &spanish_date(date), x - 50, bottom + 10, 100, 24, 12, MUTED, false);
+        }
     }
     SelectObject(dc, old);
     let _ = DeleteObject(grid.into());
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let start = now.saturating_sub(24 * 60 * 60);
-    let visible: Vec<_> = samples
-        .iter()
-        .filter(|sample| sample.at >= start && sample.at <= now)
-        .collect();
-    if visible.len() >= 2 {
-        let points: Vec<Point> = visible
-            .iter()
-            .map(|sample| Point {
-                X: 133
-                    + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0)
-                        as i32,
-                Y: 749 - sample.percent as i32 * 134 / 100,
-            })
-            .collect();
-        let mut graphics = std::ptr::null_mut();
-        if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
-            let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
-            // The visual depth belongs exclusively under the data line: a vertical
-            // green fade to transparent, not an outline shadow around the series.
-            let mut area = points.clone();
-            area.push(Point {
-                X: points.last().expect("points not empty").X,
-                Y: 749,
-            });
-            area.push(Point {
-                X: points[0].X,
-                Y: 749,
-            });
-            let mut brush = std::ptr::null_mut();
-            let gradient_bounds = windows::Win32::Graphics::GdiPlus::Rect {
-                X: 133,
-                Y: 615,
-                Width: 923,
-                Height: 134,
-            };
-            if GdipCreateLineBrushFromRectI(
-                &gradient_bounds,
-                0x4A2FE189,
-                0x002FE189,
-                LinearGradientModeVertical,
-                WrapModeTileFlipX,
-                &mut brush,
-            )
-            .0 == 0
-            {
-                let _ = GdipFillPolygonI(
-                    graphics,
-                    brush.cast(),
-                    area.as_ptr(),
-                    area.len() as i32,
-                    FillModeWinding,
-                );
-                let _ = GdipDeleteBrush(brush.cast());
-            }
-            draw_gp_curve(graphics, &points, 0xFF2FE189, 3.0);
-            let _ = GdipDeleteGraphics(graphics);
-        }
-    } else if let Some(sample) = visible.first() {
-        let x = 133
-            + (((sample.at.saturating_sub(start)) as f64 / (24.0 * 60.0 * 60.0)) * 923.0) as i32;
-        let y = 749 - sample.percent as i32 * 134 / 100;
-        let brush = CreateSolidBrush(rgb(0x2FE189));
-        let old = SelectObject(dc, brush.into());
-        let _ = Ellipse(dc, x - 3, y - 3, x + 4, y + 4);
-        SelectObject(dc, old);
-        let _ = DeleteObject(brush.into());
-    } else {
-        draw_center(
-            dc,
-            "Aún no hay historial",
-            330,
-            655,
-            560,
-            24,
-            13,
-            0xBED0E9,
-            false,
-        );
+    for (label, percent) in [("100%", 100.0), ("50%", 50.0), ("0%", 0.0)] {
+        draw_right(dc, label, 60, y_of(percent) - 12, 62, 24, 12, MUTED, false);
     }
+
+    let points: Vec<Point> = hourly_average(samples, start, now)
+        .into_iter()
+        .map(|(at, percent)| Point { X: x_of(at), Y: y_of(percent) })
+        .collect();
+    match points.len() {
+        0 => draw_center(dc, "Todavía no hay lecturas en los últimos 7 días", 330, 640, 560, 24, 14, MUTED, false),
+        1 => {
+            let brush = CreateSolidBrush(rgb(GREEN));
+            let old = SelectObject(dc, brush.into());
+            let _ = Ellipse(dc, points[0].X - 4, points[0].Y - 4, points[0].X + 5, points[0].Y + 5);
+            SelectObject(dc, old);
+            let _ = DeleteObject(brush.into());
+        }
+        _ => {
+            let mut graphics = std::ptr::null_mut();
+            if GdipCreateFromHDC(dc, &mut graphics).0 == 0 {
+                let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias);
+                // The visual depth belongs exclusively under the data line: a vertical
+                // green fade to transparent, not an outline shadow around the series.
+                let mut area = points.clone();
+                area.push(Point { X: points[points.len() - 1].X, Y: bottom });
+                area.push(Point { X: points[0].X, Y: bottom });
+                let mut brush = std::ptr::null_mut();
+                let bounds = windows::Win32::Graphics::GdiPlus::Rect {
+                    X: left, Y: top, Width: right - left, Height: bottom - top,
+                };
+                if GdipCreateLineBrushFromRectI(
+                    &bounds, 0x4A2FE189, 0x002FE189, LinearGradientModeVertical, WrapModeTileFlipX, &mut brush,
+                ).0 == 0
+                {
+                    let _ = GdipFillPolygonI(graphics, brush.cast(), area.as_ptr(), area.len() as i32, FillModeWinding);
+                    let _ = GdipDeleteBrush(brush.cast());
+                }
+                draw_gp_polyline(graphics, &points, 0xFF2FE189, 2.5);
+                let _ = GdipDeleteGraphics(graphics);
+            }
+        }
+    }
+}
+
+/// Local midnights strictly inside (start, end], with the date each one opens.
+fn local_midnights(start: u64, end: u64) -> Vec<(u64, chrono::NaiveDate)> {
+    use chrono::TimeZone;
+    let Some(first) = DateTime::from_timestamp(start as i64, 0) else { return Vec::new() };
+    let mut date = first.with_timezone(&chrono::Local).date_naive();
+    let mut midnights = Vec::new();
+    while let Some(next) = date.succ_opt() {
+        date = next;
+        let Some(at) = date.and_hms_opt(0, 0, 0)
+            .and_then(|midnight| chrono::Local.from_local_datetime(&midnight).earliest())
+            .and_then(|midnight| u64::try_from(midnight.timestamp()).ok())
+        else { break };
+        if at > end {
+            break;
+        }
+        midnights.push((at, date));
+    }
+    midnights
+}
+
+/// Averages readings per hour so firmware jitter and 30 s polling do not draw
+/// a noisy line. Returns (bucket middle, mean percent) for hours with data.
+fn hourly_average(samples: &[Sample], start: u64, end: u64) -> Vec<(u64, f64)> {
+    let mut buckets: Vec<(u64, u64)> = vec![(0, 0); (end.saturating_sub(start) / 3600 + 1) as usize];
+    for sample in samples.iter().filter(|sample| sample.at >= start && sample.at <= end) {
+        let bucket = &mut buckets[((sample.at - start) / 3600) as usize];
+        bucket.0 += sample.percent as u64;
+        bucket.1 += 1;
+    }
+    buckets
+        .into_iter()
+        .enumerate()
+        .filter(|(_, (_, count))| *count > 0)
+        .map(|(index, (sum, count))| ((start + index as u64 * 3600 + 1800).min(end), sum as f64 / count as f64))
+        .collect()
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn button(dc: windows::Win32::Graphics::Gdi::HDC) {
-    let brush = CreateSolidBrush(rgb(0xE8373D));
-    let old = SelectObject(dc, brush.into());
-    let _ = RoundRect(
-        dc,
-        REFRESH.x,
-        REFRESH.y,
-        REFRESH.x + REFRESH.w,
-        REFRESH.y + REFRESH.h,
-        24,
-        24,
-    );
-    SelectObject(dc, old);
+    let brush = CreateSolidBrush(rgb(0x1F6FD1));
+    let pen = CreatePen(PS_SOLID, 1, rgb(0x2F80E6));
+    let old_brush = SelectObject(dc, brush.into());
+    let old_pen = SelectObject(dc, pen.into());
+    let _ = RoundRect(dc, REFRESH.x, REFRESH.y, REFRESH.x + REFRESH.w, REFRESH.y + REFRESH.h, 16, 16);
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
     let _ = DeleteObject(brush.into());
-    draw_center(
-        dc,
-        "Actualizar ahora",
-        REFRESH.x,
-        REFRESH.y,
-        REFRESH.w,
-        REFRESH.h,
-        15,
-        0xFFFFFF,
-        false,
-    );
+    let _ = DeleteObject(pen.into());
+    draw_center(dc, "Actualizar ahora", REFRESH.x, REFRESH.y, REFRESH.w, REFRESH.h, 15, 0xFFFFFF, true);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -1381,6 +1394,24 @@ impl Confidence {
             Confidence::High => "confianza alta",
         }
     }
+
+    fn word(self) -> (&'static str, u32) {
+        match self {
+            Confidence::Low => ("Baja", MUTED),
+            Confidence::Medium => ("Media", AMBER),
+            Confidence::High => ("Alta", GREEN),
+        }
+    }
+}
+
+/// Ring colours (base, highlight, glow) and the matching flat colour, on the
+/// same thresholds as the tray icon so both always agree.
+fn level_palette(percent: u8) -> (u32, u32, u32, u32) {
+    match percent {
+        55.. => (0xff1abd74, 0xff45f4a1, 0xF43BEE99, GREEN),
+        25.. => (0xffc98a12, 0xffffc24d, 0xF4FFB833, AMBER),
+        _ => (0xffc0392b, 0xffff6b6b, 0xF4FF5C5C, RED),
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1392,12 +1423,20 @@ struct Estimate {
     confidence: Confidence,
 }
 
+/// Older drain counts half as much every week, so a new polling rate or a
+/// heavier gaming week shows up in days instead of after the 60-day window.
+const RECENCY_HALF_LIFE: f64 = 7.0 * 24.0 * 60.0 * 60.0;
+
 /// Learns the drain rate from every discharge stretch instead of requiring one
 /// uninterrupted 100%→0% cycle. Net deltas are summed, so ±1% jitter cancels;
 /// charging samples and recharge jumps are boundaries that contribute nothing.
+/// Rates are recency-weighted; confidence uses the unweighted evidence.
 fn estimate(samples: &[Sample]) -> Option<Estimate> {
-    let (mut active_drop, mut active_seconds) = (0_i64, 0_u64);
-    let (mut calendar_drop, mut calendar_seconds) = (0_i64, 0_u64);
+    let newest = samples.last()?.at;
+    let mut evidence = 0_i64;
+    let (mut active_drop, mut active_seconds) = (0.0_f64, 0.0_f64);
+    let (mut calendar_drop, mut calendar_seconds) = (0.0_f64, 0.0_f64);
+    let mut calendar_span = 0_u64;
     for pair in samples.windows(2) {
         let (before, after) = (&pair[0], &pair[1]);
         let gap = after.at.saturating_sub(before.at);
@@ -1407,25 +1446,73 @@ fn estimate(samples: &[Sample]) -> Option<Estimate> {
             continue;
         }
         let delta = before.percent as i64 - after.percent as i64;
+        let weight = 0.5_f64.powf(newest.saturating_sub(after.at) as f64 / RECENCY_HALF_LIFE);
         if gap <= ACTIVE_GAP {
-            active_drop += delta;
-            active_seconds += gap;
+            evidence += delta;
+            active_drop += weight * delta as f64;
+            active_seconds += weight * gap as f64;
         }
         if gap <= CALENDAR_GAP {
-            calendar_drop += delta;
-            calendar_seconds += gap;
+            calendar_drop += weight * delta as f64;
+            calendar_seconds += weight * gap as f64;
+            calendar_span += gap;
         }
     }
-    let confidence = match active_drop {
+    let confidence = match evidence {
         drop if drop < 5 => return None,
         drop if drop < 20 => Confidence::Low,
         drop if drop < 50 => Confidence::Medium,
         _ => Confidence::High,
     };
-    let active_hours = (100.0 * active_seconds as f64 / 3600.0 / active_drop as f64).clamp(5.0, 1000.0);
-    let calendar_days = (calendar_drop >= 5 && calendar_seconds >= 24 * 60 * 60)
-        .then(|| (100.0 * calendar_seconds as f64 / 86_400.0 / calendar_drop as f64).clamp(0.5, 365.0));
+    if active_drop <= 0.0 {
+        return None;
+    }
+    let active_hours = (100.0 * active_seconds / 3600.0 / active_drop).clamp(5.0, 1000.0);
+    let calendar_days = (calendar_drop > 0.0 && calendar_span >= 24 * 60 * 60)
+        .then(|| (100.0 * calendar_seconds / 86_400.0 / calendar_drop).clamp(0.5, 365.0));
     Some(Estimate { active_hours, calendar_days, confidence })
+}
+
+const LOW_BATTERY_LEVELS: [u8; 2] = [20, 5];
+/// A warning re-arms only after charging or a real recovery above this level,
+/// so ±1% jitter around a threshold never repeats the notification.
+const LOW_BATTERY_REARM: u8 = 25;
+
+/// Returns the threshold to announce now (if any) and the new "already
+/// announced" state. Each threshold is announced once per discharge.
+fn low_battery_alert(announced: Option<u8>, percent: u8, charging: bool) -> (Option<u8>, Option<u8>) {
+    if charging || percent > LOW_BATTERY_REARM {
+        return (None, None);
+    }
+    match LOW_BATTERY_LEVELS.iter().copied().filter(|level| percent <= *level).min() {
+        Some(level) if announced.is_none_or(|previous| level < previous) => (Some(level), Some(level)),
+        _ => (None, announced),
+    }
+}
+
+fn low_battery_message(level: u8, percent: u8, learned: Option<Estimate>) -> (&'static str, String) {
+    let hours = learned.map(|estimate| format!(" (~{:.0} h de uso)", estimate.active_hours * percent as f64 / 100.0))
+        .unwrap_or_default();
+    if level <= 5 {
+        ("Batería crítica · R5 Ultra", format!("Queda {percent}%{hours}. Conectá el mouse para cargarlo."))
+    } else {
+        ("Batería baja · R5 Ultra", format!("Queda {percent}%{hours}. Conviene cargarlo pronto."))
+    }
+}
+
+/// Short Spanish date independent of the Windows display language.
+fn spanish_date(date: chrono::NaiveDate) -> String {
+    use chrono::Datelike;
+    const DAYS: [&str; 7] = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"];
+    const MONTHS: [&str; 12] = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"];
+    format!("{} {} {}", DAYS[date.weekday().num_days_from_monday() as usize], date.day(), MONTHS[date.month0() as usize])
+}
+
+/// The local date by which the mouse should be charged at the user's rhythm.
+fn charge_by(learned: Option<Estimate>, percent: u8, now: u64) -> Option<String> {
+    let days = remaining_days(learned, percent)?;
+    let at = DateTime::from_timestamp((now as f64 + days * 86_400.0) as i64, 0)?;
+    Some(spanish_date(at.with_timezone(&chrono::Local).date_naive()))
 }
 
 /// A clearly provisional baseline keeps the live autonomy useful before enough
@@ -1443,35 +1530,17 @@ fn format_days(days: f64) -> String {
     if days < 1.95 { format!("{days:.1} días").replace('.', ",") } else { format!("{days:.0} días") }
 }
 
-fn estimate_label(learned: Option<Estimate>) -> String {
-    match learned {
-        Some(estimate) => format!("Uso activo · aprendida · {}", estimate.confidence.label()),
-        None => "Estimación inicial · confianza baja".to_owned(),
+fn reading_tip(percent: u8, charging: bool, learned: Option<Estimate>, now: u64) -> String {
+    if charging {
+        return format!("R5 Ultra · {percent}% · cargando");
     }
-}
-
-fn full_charge_label(learned: Option<Estimate>) -> String {
-    match learned {
-        Some(Estimate { calendar_days: Some(days), confidence, .. }) =>
-            format!("Uso activo · ~{} · {}", format_days(days), confidence.label()),
-        Some(estimate) => format!("Uso activo · {}", estimate.confidence.label()),
-        None => "Menos de 5% de descarga observada".to_owned(),
+    let hours = format!("~{:.0} h de uso", remaining_hours(learned, percent));
+    match (learned, remaining_days(learned, percent), charge_by(learned, percent, now)) {
+        (Some(_), Some(days), Some(date)) =>
+            format!("R5 Ultra · {percent}% · {hours} · ~{} · cargar antes del {date}", format_days(days)),
+        (Some(estimate), _, _) => format!("R5 Ultra · {percent}% · {hours} · {}", estimate.confidence.label()),
+        (None, _, _) => format!("R5 Ultra · {percent}% · {hours} (estimación inicial)"),
     }
-}
-
-fn remaining_label(learned: Option<Estimate>, percent: u8) -> String {
-    match (learned, remaining_days(learned, percent)) {
-        (Some(estimate), Some(days)) => format!("Uso activo · ~{} · {}", format_days(days), estimate.confidence.label()),
-        _ => estimate_label(learned),
-    }
-}
-
-fn reading_tip(percent: u8, charging: bool, learned: Option<Estimate>) -> String {
-    let days = remaining_days(learned, percent).map(|days| format!(" · ~{}", format_days(days))).unwrap_or_default();
-    format!("R5 — {percent}% · {} · ~{:.0} h uso{days} · {}",
-        if charging { "Cargando" } else { "No cargando" },
-        remaining_hours(learned, percent),
-        learned.map_or("estimación inicial", |estimate| estimate.confidence.label()))
 }
 
 #[cfg(test)]
@@ -1495,15 +1564,18 @@ mod tests {
 
     #[test]
     fn tooltip_distinguishes_valid_telemetry_from_provisional_and_learned_estimates() {
-        let initial = super::reading_tip(78, false, None);
-        assert!(initial.contains("~156 h") && initial.contains("estimación inicial"));
+        let now = 1_800_000_000;
+        let initial = super::reading_tip(78, false, None, now);
+        assert_eq!(initial, "R5 Ultra · 78% · ~156 h de uso (estimación inicial)");
         let estimate = Estimate { active_hours: 100.0, calendar_days: Some(28.0), confidence: super::Confidence::Medium };
-        let learned = super::reading_tip(78, false, Some(estimate));
-        assert!(learned.contains("~78 h uso") && learned.contains("~22 días") && learned.contains("confianza media"));
-        assert!(initial.encode_utf16().count() < 128 && learned.encode_utf16().count() < 128);
-        assert_eq!(super::full_charge_label(Some(estimate)), "Uso activo · ~28 días · confianza media");
-        assert_eq!(super::remaining_label(Some(estimate), 3), "Uso activo · ~0,8 días · confianza media");
-        assert_eq!(super::full_charge_label(None), "Menos de 5% de descarga observada");
+        let learned = super::reading_tip(78, false, Some(estimate), now);
+        assert!(learned.starts_with("R5 Ultra · 78% · ~78 h de uso · ~22 días · cargar antes del "), "{learned}");
+        let without_days = Estimate { calendar_days: None, ..estimate };
+        assert_eq!(super::reading_tip(78, false, Some(without_days), now), "R5 Ultra · 78% · ~78 h de uso · confianza media");
+        assert_eq!(super::reading_tip(40, true, Some(estimate), now), "R5 Ultra · 40% · cargando");
+        for tip in [initial, learned] {
+            assert!(tip.encode_utf16().count() < 128);
+        }
     }
 
     #[test]
@@ -1511,19 +1583,102 @@ mod tests {
         let sample = Sample { at: 100, percent: 93, charging: false };
         let pending = super::ProbeResult::Error { code: "reading_unavailable", message: String::new() };
         assert_eq!(super::panel_battery(Some(&pending), Some(sample.clone())),
-            (Some(93), "Sin lectura nueva", false));
-        assert_eq!(super::panel_battery(Some(&pending), None), (None, "Sin lectura nueva", false));
+            (Some(93), "Último valor conocido", false));
+        assert_eq!(super::panel_battery(Some(&pending), None), (None, "Último valor conocido", false));
         let missing = super::ProbeResult::Error { code: "device_unavailable", message: String::new() };
-        assert_eq!(super::panel_battery(Some(&missing), Some(sample.clone())),
-            (None, "Sin lectura válida", false));
-        let tip = super::pending_tip(Some(sample), 130);
-        assert!(tip.contains("último 93%") && tip.contains("hace 30 s") && tip.contains("posible reposo"));
-        assert!(!tip.contains("HID válido") && tip.encode_utf16().count() < 128);
+        assert_eq!(super::panel_battery(Some(&missing), Some(sample.clone())), (None, "Sin lectura", false));
+        assert_eq!(super::pending_tip(Some(sample.clone()), 130), "R5 Ultra · 93% hace 30 s · mouse en reposo");
+        assert_eq!(super::pending_tip(Some(sample), 100 + 7_200), "R5 Ultra · 93% hace 2 h · mouse en reposo");
+        assert!(super::pending_tip(None, 0).encode_utf16().count() < 128);
         let awake = super::ProbeResult::Ok { reading: r5_battery_estimator::battery::protocol::ParsedBattery {
             percent: 92, charging: false,
             layout: r5_battery_estimator::battery::protocol::ReportLayout::Shifted,
         } };
-        assert_eq!(super::panel_battery(Some(&awake), None), (Some(92), "No cargando", true));
+        assert_eq!(super::panel_battery(Some(&awake), None), (Some(92), "En batería", true));
+    }
+
+    #[test]
+    fn elapsed_labels_round_to_readable_units() {
+        assert_eq!(super::elapsed_label(45), "45 s");
+        assert_eq!(super::elapsed_label(600), "10 min");
+        assert_eq!(super::elapsed_label(3 * 3_600 + 600), "3 h");
+    }
+
+    #[test]
+    fn recent_drain_outweighs_old_drain() {
+        // Three weeks at 600 s per point, then one week at 300 s per point.
+        let mut samples = Vec::new();
+        let mut at = 0;
+        let mut percent: u8 = 100;
+        for (days, spacing) in [(21_u64, 600_u64), (7, 300)] {
+            let end = at + days * 86_400;
+            while at < end {
+                // One awake hour per day, then the PC sleeps until the next day.
+                let session_end = at + 3_600;
+                samples.push(Sample { at, percent, charging: false });
+                while at + spacing <= session_end {
+                    at += spacing;
+                    percent -= 1;
+                    samples.push(Sample { at, percent, charging: false });
+                    if percent == 10 {
+                        percent = 100;
+                        at += 600;
+                        samples.push(Sample { at, percent, charging: true });
+                    }
+                }
+                at = session_end - (session_end % 86_400) + 86_400;
+            }
+        }
+        let learned = estimate(&samples).unwrap();
+        let old_rate_hours = 600.0 * 100.0 / 3600.0;
+        let new_rate_hours = 300.0 * 100.0 / 3600.0;
+        let unweighted = (old_rate_hours + new_rate_hours) / 2.0;
+        assert!(learned.active_hours < unweighted, "{} h", learned.active_hours);
+        assert!(learned.active_hours > new_rate_hours);
+    }
+
+    #[test]
+    fn low_battery_announces_each_threshold_once_per_discharge() {
+        use super::low_battery_alert as alert;
+        assert_eq!(alert(None, 40, false), (None, None));
+        assert_eq!(alert(None, 20, false), (Some(20), Some(20)));
+        assert_eq!(alert(Some(20), 19, false), (None, Some(20)));
+        assert_eq!(alert(Some(20), 21, false), (None, Some(20)), "jitter above 20% does not re-arm");
+        assert_eq!(alert(Some(20), 5, false), (Some(5), Some(5)));
+        assert_eq!(alert(Some(5), 4, false), (None, Some(5)));
+        assert_eq!(alert(Some(5), 4, true), (None, None), "charging re-arms");
+        assert_eq!(alert(Some(20), 30, false), (None, None), "recovery above 25% re-arms");
+        assert_eq!(alert(None, 3, false), (Some(5), Some(5)), "starting below 5% only sends the critical warning");
+        let (title, body) = super::low_battery_message(20, 19, Some(Estimate {
+            active_hours: 70.0, calendar_days: None, confidence: super::Confidence::High,
+        }));
+        assert_eq!(title, "Batería baja · R5 Ultra");
+        assert_eq!(body, "Queda 19% (~13 h de uso). Conviene cargarlo pronto.");
+        assert!(super::low_battery_message(5, 4, None).0.contains("crítica"));
+    }
+
+    #[test]
+    fn spanish_dates_do_not_depend_on_windows_language() {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
+        assert_eq!(super::spanish_date(date), "jue 5 nov");
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 9, 13).unwrap();
+        assert_eq!(super::spanish_date(date), "dom 13 sept");
+    }
+
+    #[test]
+    fn chart_averages_hours_and_finds_day_boundaries() {
+        let samples = [
+            Sample { at: 100, percent: 50, charging: false },
+            Sample { at: 200, percent: 51, charging: false },
+            Sample { at: 3_700, percent: 49, charging: false },
+            Sample { at: 99_999, percent: 1, charging: false },
+        ];
+        let hourly = super::hourly_average(&samples, 0, 7_200);
+        assert_eq!(hourly, vec![(1_800, 50.5), (5_400, 49.0)]);
+        let now = 1_800_000_000;
+        let midnights = super::local_midnights(now - 7 * 86_400, now);
+        assert!((6..=8).contains(&midnights.len()));
+        assert!(midnights.windows(2).all(|pair| pair[0].0 < pair[1].0 && pair[0].1 < pair[1].1));
     }
 
     #[test]
@@ -1542,6 +1697,11 @@ mod tests {
             }
             assert!(!super::REFRESH.contains(-1, -1));
         }
+    }
+
+    /// Recency weighting shifts mixed-rate fixtures slightly from the plain average.
+    fn close(actual: f64, expected: f64) -> bool {
+        (actual - expected).abs() <= expected * 0.03
     }
 
     fn cycle(at: u64, spacing: u64) -> Vec<Sample> {
@@ -1600,7 +1760,7 @@ mod tests {
             // The PC stays off for the rest of the day.
         }
         let learned = estimate(&samples).expect("partial discharges are enough to learn");
-        assert!((learned.active_hours - 2_400.0 * 100.0 / 3600.0).abs() < 0.001);
+        assert!(close(learned.active_hours, 2_400.0 * 100.0 / 3600.0), "{} h", learned.active_hours);
         assert_eq!(learned.confidence, super::Confidence::High);
         let days = learned.calendar_days.unwrap();
         assert!(days > 10.0 && days < 25.0, "calendar days {days}");
@@ -1616,7 +1776,7 @@ mod tests {
         }
         let learned = estimate(&samples).unwrap();
         let drop = samples[0].percent - samples[59].percent;
-        assert!((learned.active_hours - 59.0 * 300.0 * 100.0 / 3600.0 / drop as f64).abs() < 0.001);
+        assert!(close(learned.active_hours, 59.0 * 300.0 * 100.0 / 3600.0 / drop as f64), "{} h", learned.active_hours);
     }
 
     #[test]
@@ -1643,7 +1803,8 @@ mod tests {
         // 10 points over 6000 active seconds; the day-long gap only adds calendar time.
         assert!((learned.active_hours - 6_000.0 * 100.0 / 3600.0 / 10.0).abs() < 0.001);
         let days = learned.calendar_days.unwrap();
-        assert!((days - (92_400.0 / 86_400.0) * 100.0 / 12.0).abs() < 0.001);
+        // ~8.9 days unweighted; the recent half weighs slightly more. Active-only would be ~0.7.
+        assert!((8.5..9.5).contains(&days), "{days} days");
         assert_eq!(learned.confidence, super::Confidence::Low);
     }
 
@@ -1700,7 +1861,7 @@ mod tests {
         let learned = estimate(&samples);
         println!("{} samples -> {learned:?}", samples.len());
         if let Some(last) = samples.last() {
-            println!("{}% -> {}", last.percent, super::reading_tip(last.percent, last.charging, learned));
+            println!("{}% -> {}", last.percent, super::reading_tip(last.percent, last.charging, learned, super::now_seconds()));
         }
         assert!(learned.is_some());
     }
@@ -1756,9 +1917,10 @@ unsafe fn ring(
             graphics, left, top, diameter, 0xff24323d, 18.0, -90.0, 359.95, true,
         );
         if let Some(value) = percent.filter(|value| *value > 0) {
+            let (base, highlight, glow, _) = level_palette(value);
             let sweep = value as f32 * 3.6;
             // A raster mask is actually blurred with the GDI+ Blur effect before composition.
-            draw_blurred_arc(dc, x, y, size, left - x, top - y, diameter, sweep);
+            draw_blurred_arc(dc, x, y, size, left - x, top - y, diameter, sweep, glow);
             // The shaded base plus the narrow highlight form one illuminated,
             // three-dimensional progress surface.  They are inside the real blurred
             // mask below, so this is not a detached shadow or a third ring.
@@ -1767,7 +1929,7 @@ unsafe fn ring(
                 left,
                 top,
                 diameter,
-                0xff1abd74,
+                base,
                 22.0,
                 -90.0,
                 sweep.min(359.95),
@@ -1778,7 +1940,7 @@ unsafe fn ring(
                 left,
                 top,
                 diameter,
-                0xff45f4a1,
+                highlight,
                 15.0,
                 -90.0,
                 sweep.min(359.95),
@@ -1786,10 +1948,10 @@ unsafe fn ring(
             );
             if value == 100 {
                 draw_gp_arc(
-                    graphics, left, top, diameter, 0xff1abd74, 22.0, -90.0, 359.95, false,
+                    graphics, left, top, diameter, base, 22.0, -90.0, 359.95, false,
                 );
                 draw_gp_arc(
-                    graphics, left, top, diameter, 0xff45f4a1, 15.0, -90.0, 359.95, false,
+                    graphics, left, top, diameter, highlight, 15.0, -90.0, 359.95, false,
                 );
             }
         }
@@ -1809,8 +1971,8 @@ unsafe fn ring(
         0xF7F9FC,
         true,
     );
-    battery_glyph(dc, center_x, y + 173, percent.is_some());
-    draw_center(dc, status, x + 48, y + 202, 210, 28, 15, 0xBED0E9, false);
+    battery_glyph(dc, center_x, y + 173, percent.map(|value| level_palette(value).3));
+    draw_center(dc, status, x + 48, y + 202, 210, 28, 15, MUTED, false);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -1823,6 +1985,7 @@ unsafe fn draw_blurred_arc(
     top: i32,
     diameter: i32,
     sweep: f32,
+    glow: u32,
 ) {
     const PIXEL_FORMAT_32BPP_ARGB: i32 = 0x0026_200A;
     let mut bitmap = std::ptr::null_mut();
@@ -1839,7 +2002,7 @@ unsafe fn draw_blurred_arc(
             left,
             top,
             diameter,
-            0xF43BEE99,
+            glow,
             30.0,
             -90.0,
             sweep.min(359.95),
@@ -1906,23 +2069,6 @@ unsafe fn draw_gp_arc(
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn draw_gp_curve(
-    graphics: *mut windows::Win32::Graphics::GdiPlus::GpGraphics,
-    points: &[Point],
-    argb: u32,
-    width: f32,
-) {
-    let mut pen = std::ptr::null_mut();
-    if GdipCreatePen1(argb, width, UnitPixel, &mut pen).0 == 0 {
-        let _ = GdipSetPenStartCap(pen, LineCapRound);
-        let _ = GdipSetPenEndCap(pen, LineCapRound);
-        // Tension below 0.5 keeps real samples recognisable while avoiding sharp joins.
-        let _ = GdipDrawCurve2I(graphics, pen, points.as_ptr(), points.len() as i32, 0.30);
-        let _ = GdipDeletePen(pen);
-    }
-}
-
-#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn draw_gp_polyline(
     graphics: *mut windows::Win32::Graphics::GdiPlus::GpGraphics,
     points: &[Point],
@@ -1943,9 +2089,9 @@ unsafe fn battery_glyph(
     dc: windows::Win32::Graphics::Gdi::HDC,
     center_x: i32,
     top: i32,
-    valid: bool,
+    color: Option<u32>,
 ) {
-    let pen = CreatePen(PS_SOLID, 3, rgb(if valid { 0x2FE189 } else { 0x7890A4 }));
+    let pen = CreatePen(PS_SOLID, 3, rgb(color.unwrap_or(0x7890A4)));
     let hollow = GetStockObject(HOLLOW_BRUSH);
     let old_brush = SelectObject(dc, hollow);
     let old = SelectObject(dc, pen.into());
@@ -2053,10 +2199,44 @@ fn tray_tip() -> String {
         .and_then(|state| state.lock().ok())
         .map(|state| state.clone())
     {
-        Some(ProbeResult::Ok { reading }) => reading_tip(reading.percent, reading.charging, learned.flatten()),
+        Some(ProbeResult::Ok { reading }) =>
+            reading_tip(reading.percent, reading.charging, learned.flatten(), now_seconds()),
         Some(ProbeResult::Error { code: "reading_unavailable", .. }) => pending_tip(last_valid_sample(), now_seconds()),
-        _ => "R5 Battery Estimator — sin lectura válida".to_owned(),
+        _ => "R5 Ultra · receptor no detectado".to_owned(),
     }
+}
+
+thread_local! {
+    /// Lowest low-battery threshold already announced in this discharge.
+    static LOW_BATTERY_ANNOUNCED: std::cell::Cell<Option<u8>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs on the UI thread after every reading and raises a Windows
+/// notification from the tray icon when a low-battery threshold is crossed.
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn check_low_battery(hwnd: HWND) {
+    let Some(ProbeResult::Ok { reading }) = BATTERY.get().and_then(|state| state.lock().ok()).map(|state| state.clone())
+    else {
+        return;
+    };
+    let (alert, announced) = low_battery_alert(LOW_BATTERY_ANNOUNCED.get(), reading.percent, reading.charging);
+    LOW_BATTERY_ANNOUNCED.set(announced);
+    let Some(level) = alert else { return };
+    let learned = HISTORY.get().and_then(|history| history.lock().ok()).and_then(|samples| estimate(&samples));
+    let (title, body) = low_battery_message(level, reading.percent, learned);
+    let mut data = NOTIFYICONDATAW {
+        cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: hwnd,
+        uID: 1,
+        uFlags: NIF_INFO,
+        dwInfoFlags: NIIF_WARNING,
+        ..Default::default()
+    };
+    let title: Vec<u16> = title.encode_utf16().take(data.szInfoTitle.len() - 1).collect();
+    data.szInfoTitle[..title.len()].copy_from_slice(&title);
+    let body: Vec<u16> = body.encode_utf16().take(data.szInfo.len() - 1).collect();
+    data.szInfo[..body.len()].copy_from_slice(&body);
+    let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
 }
 
 #[allow(unsafe_op_in_unsafe_fn)]
