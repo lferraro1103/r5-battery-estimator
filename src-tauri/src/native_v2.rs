@@ -209,7 +209,7 @@ fn main() -> windows::core::Result<()> {
         let mut args = std::env::args().skip(1);
         if args.next().as_deref() == Some("--render-png") {
             let path = args.next().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("panel.png"));
-            return render_png(&path);
+            return render_png(&path, args.next().as_deref() == Some("--asleep"));
         }
         let _instance_guard = CreateMutexW(None, false, w!("Local\\R5BatteryEstimatorNativeV2"))?;
         if GetLastError() == ERROR_ALREADY_EXISTS {
@@ -399,9 +399,10 @@ unsafe extern "system" fn window_proc(
 }
 
 /// Development aid: renders the dashboard from the local history's latest
-/// reading into a PNG, without a window, tray icon or HID query.
+/// reading into a PNG, without a window, tray icon or HID query. `asleep`
+/// renders the receiver-pending state with that reading as the last known one.
 #[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn render_png(path: &Path) -> windows::core::Result<()> {
+unsafe fn render_png(path: &Path, asleep: bool) -> windows::core::Result<()> {
     use r5_battery_estimator::battery::protocol::{ParsedBattery, ReportLayout};
     use windows::Win32::Graphics::{
         Gdi::{GetDC, ReleaseDC, HPALETTE},
@@ -410,7 +411,9 @@ unsafe fn render_png(path: &Path) -> windows::core::Result<()> {
     const PNG_ENCODER: windows::core::GUID = windows::core::GUID::from_u128(0x557cf406_1a04_11d3_9a73_0000f81ef32e);
     let samples = load_history();
     let latest = samples.last().cloned();
+    LAST_VALID.get_or_init(|| Mutex::new(latest.clone()));
     BATTERY.get_or_init(|| Mutex::new(match &latest {
+        Some(_) if asleep => ProbeResult::Error { code: "reading_unavailable", message: String::new() },
         Some(sample) => ProbeResult::Ok { reading: ParsedBattery {
             percent: sample.percent, charging: sample.charging, layout: ReportLayout::Normal,
         } },
@@ -466,8 +469,8 @@ unsafe fn render_panel(dc: windows::Win32::Graphics::Gdi::HDC) {
     draw_center(dc, "×", CLOSE.x, 0, CLOSE.w, CLOSE.h, 22, TEXT, false);
 
     // Header: what this is, and whether the receiver is answering right now.
-    draw(dc, "Batería del R5 Ultra", 38, 62, 680, 56, 36, TEXT, true);
-    draw(dc, "Autonomía estimada a partir de tu consumo real", 40, 114, 680, 30, 16, MUTED, false);
+    draw(dc, "R5 Ultra", 38, 62, 680, 56, 36, TEXT, true);
+    draw(dc, "Autonomía estimada", 40, 114, 680, 30, 16, MUTED, false);
     let (pill, dot) = match current.as_ref() {
         Some(ProbeResult::Ok { .. }) => ("Receptor 2.4 GHz · en línea", GREEN),
         Some(ProbeResult::Error { code: "reading_unavailable", .. }) => ("Mouse en reposo", AMBER),
@@ -487,7 +490,7 @@ unsafe fn render_panel(dc: windows::Win32::Graphics::Gdi::HDC) {
         &learned.map_or_else(|| "Calibrando".to_owned(), |estimate| format!("{:.0} h", estimate.active_hours)),
         if learned.is_some() { "de uso activo con la batería al 100%" } else { "se necesita al menos 5% de descarga" },
         [
-            ("A tu ritmo", learned.and_then(|estimate| estimate.calendar_days)
+            ("Duración en días", learned.and_then(|estimate| estimate.calendar_days)
                 .map_or_else(dash, |days| format!("~{}", format_days(days))), TEXT),
             ("Confianza", confidence.to_owned(), confidence_color),
         ],
@@ -502,7 +505,7 @@ unsafe fn render_panel(dc: windows::Win32::Graphics::Gdi::HDC) {
             (Some(_), None) => "estimación inicial, sin calibrar",
         },
         [
-            ("A tu ritmo", live.and_then(|value| remaining_days(learned, value))
+            ("Días restantes", live.and_then(|value| remaining_days(learned, value))
                 .map_or_else(dash, |days| format!("~{}", format_days(days))), TEXT),
             ("Cargar antes del", live.and_then(|value| charge_by(learned, value, now)).unwrap_or_else(dash), TEXT),
         ],
@@ -623,7 +626,7 @@ fn panel_battery(result: Option<&ProbeResult>, last: Option<Sample>) -> (Option<
         Some(ProbeResult::Ok { reading }) => (Some(reading.percent),
             if reading.charging { "Cargando" } else { "En batería" }, true),
         Some(ProbeResult::Error { code: "reading_unavailable", .. }) =>
-            (last.map(|sample| sample.percent), "Último valor conocido", false),
+            (last.map(|sample| sample.percent), "En reposo", false),
         _ => (None, "Sin lectura", false),
     }
 }
@@ -910,11 +913,11 @@ unsafe fn card(dc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, width: i3
 unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample], now: u64) {
     const DAYS: u64 = 7;
     const SPAN: u64 = DAYS * 24 * 60 * 60;
-    let (left, right, top, bottom) = (133, 1056, 556, 756);
-    card(dc, 38, 480, 1064, 330);
-    bars_glyph(dc, 70, 527);
-    draw(dc, "Últimos 7 días", 98, 500, 420, 30, 15, TEXT, true);
-    draw_right(dc, "Promedio por hora", 700, 500, 356, 30, 12, MUTED, false);
+    let (left, right, top, bottom) = (133, 1056, 604, 752);
+    card(dc, 38, 530, 1064, 280);
+    bars_glyph(dc, 70, 577);
+    draw(dc, "Últimos 7 días", 98, 550, 420, 30, 15, TEXT, true);
+    draw_right(dc, "Promedio por hora", 700, 550, 356, 30, 12, MUTED, false);
     let grid = CreatePen(PS_SOLID, 1, rgb(0x233440));
     let old = SelectObject(dc, grid.into());
     for row in 0..=4 {
@@ -931,7 +934,7 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample], now:
         let _ = MoveToEx(dc, x, top, None);
         let _ = LineTo(dc, x, bottom);
         if x + 50 <= right + 20 {
-            draw_center(dc, &spanish_date(date), x - 50, bottom + 10, 100, 24, 12, MUTED, false);
+            draw_center(dc, &spanish_date(date), x - 50, bottom + 8, 100, 24, 12, MUTED, false);
         }
     }
     SelectObject(dc, old);
@@ -945,7 +948,7 @@ unsafe fn chart(dc: windows::Win32::Graphics::Gdi::HDC, samples: &[Sample], now:
         .map(|(at, percent)| Point { X: x_of(at), Y: y_of(percent) })
         .collect();
     match points.len() {
-        0 => draw_center(dc, "Todavía no hay lecturas en los últimos 7 días", 330, 640, 560, 24, 14, MUTED, false),
+        0 => draw_center(dc, "Todavía no hay lecturas en los últimos 7 días", 330, 666, 560, 24, 14, MUTED, false),
         1 => {
             let brush = CreateSolidBrush(rgb(GREEN));
             let old = SelectObject(dc, brush.into());
@@ -1583,8 +1586,8 @@ mod tests {
         let sample = Sample { at: 100, percent: 93, charging: false };
         let pending = super::ProbeResult::Error { code: "reading_unavailable", message: String::new() };
         assert_eq!(super::panel_battery(Some(&pending), Some(sample.clone())),
-            (Some(93), "Último valor conocido", false));
-        assert_eq!(super::panel_battery(Some(&pending), None), (None, "Último valor conocido", false));
+            (Some(93), "En reposo", false));
+        assert_eq!(super::panel_battery(Some(&pending), None), (None, "En reposo", false));
         let missing = super::ProbeResult::Error { code: "device_unavailable", message: String::new() };
         assert_eq!(super::panel_battery(Some(&missing), Some(sample.clone())), (None, "Sin lectura", false));
         assert_eq!(super::pending_tip(Some(sample.clone()), 130), "R5 Ultra · 93% hace 30 s · mouse en reposo");
