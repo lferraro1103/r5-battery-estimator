@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-09-28)
 Phase: 5 of 5 (Native Rust V2 polish, performance and professional dashboard)
 Plan: Not planned yet
 Status: Ready to plan
-Last activity: 2026-10-23 - Completed quick task 261023-rbh: Peso por uso reciente, avisos de batería baja, fecha de carga y panel rediseñado
+Last activity: 2026-10-23 - Completed quick task 261023-rmb: Ajustes de espaciado y textos del panel
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -91,6 +91,7 @@ Recent decisions affecting current work:
 | 260930-nwl | Publicar instalador V2 con tiburón completo en EXE/setup y pantalla GPL v3 | 2026-09-30 | 3e217e3 | [260930-nwl-publicar-instalador-v2-con-iconos-del-ti](./quick/260930-nwl-publicar-instalador-v2-con-iconos-del-ti/) |
 | 261023-qz3 | Estimador por tasa de consumo: aprende de descargas parciales, detecta recargas por saltos, 60 días de historial | 2026-10-23 | a4374e6 | [261023-qz3-estimador-por-tasa-de-consumo](./quick/261023-qz3-estimador-por-tasa-de-consumo/) |
 | 261023-rbh | Peso por uso reciente, avisos de batería baja, fecha de carga y panel rediseñado | 2026-10-23 | 808faa8 | [261023-rbh-uso-reciente-avisos-bateria-baja-fecha-d](./quick/261023-rbh-uso-reciente-avisos-bateria-baja-fecha-d/) |
+| 261023-rmb | Ajustes de espaciado y textos del panel | 2026-10-23 | 8f3bb20 | [261023-rmb-ajustes-de-espaciado-y-textos-del-panel](./quick/261023-rmb-ajustes-de-espaciado-y-textos-del-panel/) |
 
 ## Deferred Items
 
